@@ -1,0 +1,17 @@
+{
+    // "presets":[
+    //     "@babel/preset-env"
+    // ],
+    "presets": [
+        
+        ["@babel/preset-env", {
+          "targets": {
+            "android": "5" // Android 6.0 WebView 对应大多数低端机
+          },
+          "useBuiltIns": "usage",
+          "corejs": 3
+        }]
+      ],
+    "plugins":["@babel/plugin-proposal-class-properties"]
+  }
+
