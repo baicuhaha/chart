@@ -1,31 +1,48 @@
-
 const i18n = {
   "en-US": {
-    "time": "Time",
-    "open": "Open",
-    "close": "Close",
-    "low": "Low",
-    "high": "High",
-    "change": "Change",
-    "amplitude":"Range"
+    time: "Time",
+    open: "Open",
+    close: "Close",
+    low: "Low",
+    high: "High",
+    change: "Change",
+    amplitude: "Range",
+    seller: "Sell",
+    amount: "Amount",
+    price: "Price",
+    avgPrice: "Avg Price:",
+    volume: "Volume:",
+    turnover: "Turnover:",
   },
   "zh-CN": {
-    "time": "时间",
-    "open": "开",
-    "close": "收",
-    "low": "低",
-    "high": "高",
-    "change": "涨跌",
-    "amplitude":"振幅"
+    time: "时间",
+    open: "开",
+    close: "收",
+    low: "低",
+    high: "高",
+    change: "涨跌",
+    amplitude: "振幅",
+    seller: "卖",
+    amount: "数量",
+    price: "价格",
+    avgPrice: "平均价格:",
+    volume: "成交量:",
+    turnover: "成交额:",
   },
   "zh-TC": {
-    "time": "時間",
-    "open": "開",
-    "close": "收",
-    "low": "低",
-    "high": "高",
-    "change": "漲跌",
-    "amplitude":"振幅"
-  }
-}
-export  default i18n;
+    time: "時間",
+    open: "開",
+    close: "收",
+    low: "低",
+    high: "高",
+    change: "漲跌",
+    amplitude: "振幅",
+    seller: "卖",
+    amount: "數量",
+    price: "價格",
+    avgPrice: "平均價格:",
+    volume: "成交量:",
+    turnover: "成交額:",
+  },
+};
+export default i18n;

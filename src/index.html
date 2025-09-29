@@ -9,7 +9,7 @@
     <title>KChart</title>
     <!-- <script src="https://unpkg.com/lightweight-charts@5.0.6/dist/lightweight-charts.standalone.production.js"></script> -->
 
-    <!-- <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script> -->
+    <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
     <style>
       /* @font-face {
         font-family: "iconfont";
@@ -39,6 +39,16 @@
         flex-direction: column;
         overflow-y: auto;
       }
+      #sell-layer {
+        left: 16px;
+        top: 10px;
+        position: absolute;
+        display: none;
+
+        flex-direction: row;
+        align-items: center;
+        z-index: 1000;
+      }
 
       #container {
         background-color: transparent !important;
@@ -66,6 +76,20 @@
       ></div> -->
 
       <div id="price-layer" class="custom-price-scale"></div>
+    </div>
+    <div id="sell-layer" class="custom-sell">
+      <div
+        style="
+          width: 10px;
+          height: 10px;
+          background: rgba(235, 75, 109, 1);
+          margin-right: 4px;
+        "
+      ></div>
+      <div
+        id="sell-layer-title"
+        style="font-size: 12px; color: rgba(13, 12, 34, 0.5)"
+      ></div>
     </div>
   </body>
 
