@@ -76,6 +76,7 @@ export default class SimpleChart {
     this._type = type;
     this._language = language || "zh-CN";
     this._loadMore = loadMore;
+    // container.style.height = "326px";
 
     this.chart = createChart(container, {
       layout: {
@@ -122,6 +123,11 @@ export default class SimpleChart {
       ...options.chartOptions,
     });
 
+    console.log(
+      "container rect-----》:",
+      container.getBoundingClientRect().height
+    );
+
     this.chart.applyOptions({
       layout: {
         fontSize: 10, // x轴文字大小
@@ -133,23 +139,21 @@ export default class SimpleChart {
     this.createToolTip(container);
     this.createLatestPriceDiv(container);
 
-    if (this._type === "Line") {
-      const areaSeries = this.chart.addSeries(AreaSeries, {
-        lineColor: "#4A7D2F",
-        lineWidth: 1,
-        lineType: 0,
-        topColor: "rgba(74, 125, 47, 0.3)", // 填充区域顶部渐变颜色
-        bottomColor: "rgba(74, 125, 47, 0)", // 填充区域底部渐变颜色
-      } as DeepPartial<AreaStyleOptions>);
-      areaSeries.attachPrimitive(new PartialPriceLine());
-      areaSeries.attachPrimitive(
-        new OverlayPriceScale({
-          side: "right",
-          backgroundColor: "rgba(0,0,0,0)",
-        })
-      );
-      this.series.push(areaSeries);
-    }
+    const areaSeries = this.chart.addSeries(AreaSeries, {
+      lineColor: "#4A7D2F",
+      lineWidth: 1,
+      lineType: 0,
+      topColor: "rgba(74, 125, 47, 0.3)", // 填充区域顶部渐变颜色
+      bottomColor: "rgba(74, 125, 47, 0)", // 填充区域底部渐变颜色
+    } as DeepPartial<AreaStyleOptions>);
+    areaSeries.attachPrimitive(new PartialPriceLine());
+    areaSeries.attachPrimitive(
+      new OverlayPriceScale({
+        side: "right",
+        backgroundColor: "rgba(0,0,0,0)",
+      })
+    );
+    this.series.push(areaSeries);
 
     this.chart
       .timeScale()

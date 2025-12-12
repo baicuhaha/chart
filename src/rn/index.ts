@@ -16,6 +16,7 @@ if (container) {
   const params = new URLSearchParams(window.location.search);
   const lang = params.get("lang") || "";
   const type = params.get("type") || "";
+  let height = params.get("height") || 0;
 
   //加载更多
   let loadMore = () => {
@@ -33,6 +34,9 @@ if (container) {
         type: type,
         container,
         language: lang,
+        options: {
+          height: height,
+        },
         loadMore: () => loadMore(),
       });
     } else {
@@ -80,20 +84,18 @@ if (container) {
       console.log("data------init---xxxx---->", data, type, priceDecimal);
       if (type === "init") {
         kchart && kchart.setData(data, priceDecimal);
-
         requestAnimationFrame(() => {
           window?.ReactNativeWebView?.postMessage(
             JSON.stringify({ type: "onReady" })
           ); // 模拟“渲染完成”
         });
       } else if (type === "update") {
-        //  console.log("klineData--------->",data)
         kchart.update(data);
       } else if (type === "updateAddData") {
         kchart.prependData(data);
       }
     } else {
-      console.log("不是-----");
+      console.log("不是----1111-");
     }
   };
 
