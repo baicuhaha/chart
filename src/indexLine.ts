@@ -61,10 +61,14 @@ export default class SimpleChart {
   private _isInit: boolean = false; // 是否初始化完成
   private _loadMore?: () => void;
   private _loadingMore: boolean = false;
+
+  private _areaSeries: any;
   private _data: LineData[] | DepthPoint[] = [];
   private _tick: number = 2; // 精度问题
   //最后的价格
   private _lastPrice: string | number = "";
+
+  private _initSubscribe = false;
 
   constructor({
     type,
@@ -76,7 +80,10 @@ export default class SimpleChart {
     this._type = type;
     this._language = language || "zh-CN";
     this._loadMore = loadMore;
-    // container.style.height = "326px";
+    console.log("options?.heigh-------->", options.height);
+    container.style.height = `${options?.height ?? 326}px`;
+    let counter = 0;
+    const step = 2; // 每隔 step 根 K 线显示一次
 
     this.chart = createChart(container, {
       layout: {
@@ -106,13 +113,15 @@ export default class SimpleChart {
         borderColor: "rgba(13, 12, 34, 0.07)",
         timeVisible: true,
         tickMarkFormatter: (time: UTCTimestamp) => {
-          const date = new Date(time * 1000); // Convert to milliseconds
+          counter++;
+          if (counter % step !== 0) return ""; // 不显示
+          const date = new Date(time * 1000);
           const options: Intl.DateTimeFormatOptions = {
             month: "2-digit",
             day: "2-digit",
             hour: "2-digit",
             minute: "2-digit",
-            hour12: false, // Use 24-hour format
+            hour12: false,
           };
           return date.toLocaleString(this._language, options).replace(",", "");
         },
@@ -134,38 +143,99 @@ export default class SimpleChart {
       },
     });
 
-    this.chart.timeScale().fitContent();
-
     this.createToolTip(container);
     this.createLatestPriceDiv(container);
 
     const areaSeries = this.chart.addSeries(AreaSeries, {
-      lineColor: "#4A7D2F",
-      lineWidth: 1,
+      // lineColor: "#4A7D2F",
+      lineColor: "#30BD65",
+      lineWidth: 2,
       lineType: 0,
-      topColor: "rgba(74, 125, 47, 0.3)", // 填充区域顶部渐变颜色
-      bottomColor: "rgba(74, 125, 47, 0)", // 填充区域底部渐变颜色
+      topColor: "rgba(48, 189, 101, 0.1)", // 填充区域顶部渐变颜色
+      bottomColor: "rgba(48, 189, 101, 0)", // 填充区域底部渐变颜色
     } as DeepPartial<AreaStyleOptions>);
+
     areaSeries.attachPrimitive(new PartialPriceLine());
-    areaSeries.attachPrimitive(
-      new OverlayPriceScale({
-        side: "right",
-        backgroundColor: "rgba(0,0,0,0)",
-      })
-    );
+
+    this._areaSeries = areaSeries;
     this.series.push(areaSeries);
+    //横盘处理
+    this._areaSeries.applyOptions({
+      autoscaleInfoProvider: () => {
+        const timeScale = this.chart.timeScale();
+        const logicalRange = timeScale.getVisibleLogicalRange();
+        if (!logicalRange) return null;
+
+        const bars = this._data.slice(
+          Math.max(0, Math.floor(logicalRange.from)),
+          Math.min(this._data.length, Math.ceil(logicalRange.to))
+        ) as LinePoint[];
+
+        if (!bars.length) return null;
+
+        const values = bars.map((b) => b.value);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const last = values[values.length - 1];
+
+        const epsilon = 10 ** -this._tick;
+        const range = max - min;
+
+        // ✅ 横盘：价格贴近 X 轴（底部）
+        if (range < epsilon) {
+          // OverlayPriceScale.instance?.applyOptions({
+          //   flatEpsilonRatio: epsilon,
+          // });
+
+          return {
+            priceRange: {
+              minValue: last - epsilon, // 👈 价格压在底部
+              maxValue: last + epsilon * 30, // 👈 上方留白
+            },
+          };
+        }
+
+        // 非横盘：正常
+        return {
+          priceRange: {
+            minValue: min,
+            maxValue: max,
+          },
+        };
+      },
+    });
 
     this.chart
       .timeScale()
       .subscribeVisibleLogicalRangeChange((logicalRange) => {
-        if (
-          logicalRange &&
-          logicalRange.from < 30 &&
-          !this._loadingMore &&
-          this._isInit
-        ) {
-          this._loadMore && this._loadMore();
+        // if (!this._initSubscribe) {
+        //   this._initSubscribe = true;
+        //   return;
+        // }
+        // if (
+        //   logicalRange &&
+        //   logicalRange.from < 30 &&
+        //   !this._loadingMore &&
+        //   this._isInit
+        // ) {
+        //   this._loadMore && this._loadMore();
+        //   this._loadingMore = true;
+        // }
+
+        // 如果还没初始化完成，或者正在加载中，直接返回
+        if (!this._isInit || this._loadingMore || !logicalRange) {
+          return;
+        }
+
+        // 只有当数据量超过一定阈值（比如 50 条），才允许触发加载更多
+        // 防止初始化时因为数据太少，导致 from 必然小于 30
+        if (this._data.length < 50) return;
+
+        if (logicalRange.from < 10) {
+          // 调低阈值到 10 左右更灵敏且安全
+          console.log("触发加载更多...");
           this._loadingMore = true;
+          this._loadMore?.();
         }
       });
 
@@ -174,13 +244,14 @@ export default class SimpleChart {
       this.updatePriceDiv(this._lastPrice);
       // this.updatePriceLabelPosition(this._lastPrice);
     });
+
+    // this.chart.timeScale().fitContent();
   }
 
   public setData(
     data: LinePoint[] | DepthPoint[],
     priceDecimal?: number
   ): void {
-    this._isInit = true;
     this._data = data || [];
     console.log("data=========>", data);
     // if (this._type === 'Line') {
@@ -200,6 +271,24 @@ export default class SimpleChart {
           : String(priceDecimal).length - 2;
       this._tick = tick || 2; // 设置小数点位数
     }
+
+    this.chart.timeScale().scrollToPosition(20, false);
+
+    this._areaSeries.attachPrimitive(
+      new OverlayPriceScale({
+        side: "right",
+        // mode: "binance",
+        flatEpsilonRatio: this._tick,
+        // flatEpsilonRatio: 0.0001,
+        backgroundColor: "rgba(0,0,0,0)",
+      })
+    );
+
+    // this._isInit = true;
+
+    requestAnimationFrame(() => {
+      this._isInit = true; // 绘制完成后再放开开关
+    });
   }
 
   public update(point: LinePoint | DepthPoint): void {

@@ -17,6 +17,7 @@ export default class SimpleChart {
   private chart: any;
   private _option: any;
   private _data: any[];
+  private _tick: number = 2; // 精度问题
 
   constructor({ container, language, options = {} }: ChartInitOptions) {
     this._language = language || "zh-CN";
@@ -56,7 +57,8 @@ export default class SimpleChart {
         },
       },
       xAxis: {
-        type: "category",
+        type: "value", // 1. 修改类型
+        scale: true, // 2. 关键：脱离 0 值，从数据的最小值开始显示
         boundaryGap: false,
         axisTick: { show: false },
         splitLine: { show: false },
@@ -76,18 +78,22 @@ export default class SimpleChart {
             borderRadius: 2,
           },
         },
+        min: "dataMin",
 
         axisLabel: {
-          showMinLabel: false,
-          showMaxLabel: false,
+          // showMinLabel: false,
+          // showMaxLabel: false,
           fontSize: 10,
+          showMinLabel: true,
+          showMaxLabel: true,
+          hideOverlap: true,
           inside: false, // ✅ 数值显示在绘图区里面
           // margin: 30, // ✅ 调整内边距，防止和边框挤一起
           formatter: (value, index) => {
             // console.log("---")
             // alert(this._data.length);
-
             return value;
+            // return value.toFixed(this._tick); // 根据需要保留小数
             // return index === this._data.length ? "" : value;
           },
         },
@@ -203,10 +209,19 @@ export default class SimpleChart {
     this.createSellerDiv(container);
   }
 
-  public setData(data: any[]): void {
+  public setData(data: any[], priceDecimal?: number): void {
     this._data = [...this._data, ...data];
     console.log("  this._option----->", this._option);
     this._option.series[0].data = this._data;
+
+    if (priceDecimal) {
+      let tick =
+        String(priceDecimal).indexOf(".") == -1
+          ? 0
+          : String(priceDecimal).length - 2;
+      this._tick = tick || 2; // 设置小数点位数
+    }
+
     this.chart.setOption(this._option);
   }
 
