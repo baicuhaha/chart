@@ -16,7 +16,9 @@ const params = new URLSearchParams(window.location.search);
 const lang = params.get("lang") || "";
 const type = params.get("type") || "";
 let height = params.get("height");
+let width = params.get("width");
 let platform = params.get("platform");
+let isFullScreen = params.get("isFullScreen");
 
 let timeout =
   platform === "ios" ? 0 : type === "Line" || type === "depth" ? 1000 : 0;
@@ -43,6 +45,8 @@ function init() {
           language: lang,
           options: {
             height: height,
+            width: width,
+            isFullScreen: isFullScreen,
           },
           loadMore: () => loadMore(),
         });
@@ -87,10 +91,11 @@ function init() {
     const handleNativeData = function (res: any) {
       // 更新图表数据的逻辑
       if (isJSON(res)) {
-        let { data, type, priceDecimal, dataType } = JSON.parse(res);
+        let { data, type, priceDecimal, timeType, dataType, from } =
+          JSON.parse(res);
         console.log("data------init---xxxx---->", data, type, priceDecimal);
         if (type === "init") {
-          kchart && kchart.setData(data, priceDecimal);
+          kchart && kchart.setData(data, priceDecimal, timeType, from);
           requestAnimationFrame(() => {
             window?.ReactNativeWebView?.postMessage(
               JSON.stringify({ type: "onReady" })
@@ -100,6 +105,8 @@ function init() {
           kchart.update(data);
         } else if (type === "updateAddData") {
           kchart.prependData(data);
+        } else if (type === "replaceLineData") {
+          kchart.replaceLineData(data);
         }
       } else {
         console.log("不是----1111-");

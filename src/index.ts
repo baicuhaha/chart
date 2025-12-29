@@ -717,7 +717,7 @@ export default class KLineChart {
     const priceDiv = document.createElement("div");
     priceDiv.innerText = `${latestPrice}`;
     priceDiv.style.position = "absolute";
-    priceDiv.style.right = "7px";
+    priceDiv.style.right = "0px";
     priceDiv.style.padding = "2px 6px";
     priceDiv.style.background = "#fff";
     priceDiv.style.color = "rgba(13, 12, 34, 1)";

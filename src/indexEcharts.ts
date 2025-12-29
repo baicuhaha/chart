@@ -1,8 +1,6 @@
 import * as echarts from "echarts";
 import { setStyle, formatTimestamp } from "./utils/util";
 import Il8n from "./i18n/index";
-import { PartialPriceLine } from "./plugins/partial-price-line";
-import { OverlayPriceScale } from "./plugins/overlay-price-scale";
 
 interface ChartInitOptions {
   container: HTMLElement;
@@ -16,39 +14,89 @@ export default class SimpleChart {
   private _language: string = "zh-CN";
   private chart: any;
   private _option: any;
-  private _data: any[];
-  private _tick: number = 2; // 精度问题
+  private _data: any[] = [];
+  private _tick: number = 2;
 
   constructor({ container, language, options = {} }: ChartInitOptions) {
     this._language = language || "zh-CN";
-    // 配置项
+    const currentLang = this._language;
+
     const option = {
       animation: false,
       dataZoom: [
-        {
-          type: "inside", // 内部缩放（鼠标滚轮/拖动）
-          disabled: true, // ⚠️ 禁用放大拖拽
-        },
-        {
-          type: "slider", // 页面滑块
-          show: false, // 隐藏
-        },
+        { type: "inside", disabled: true },
+        { type: "slider", show: false },
       ],
+      // --- 核心修改部分：开启 Tooltip 并设置自动翻转位置 ---
       tooltip: {
         show: true,
         trigger: "axis",
-        confine: true,
-        showContent: false,
+        showContent: true, // 开启显示内容
+        confine: true, // 限制在容器内
+        backgroundColor: "rgba(248, 248, 248, 0.9)", // 匹配你之前的背景色
+        borderRadius: 4,
+        padding: 8,
+        borderWidth: 0,
+        extraCssText: "box-shadow: 0 0 8px rgba(0,0,0,0.1);", // 增加微阴影
+
+        // 1. 处理位置自动翻转
+        position: function (
+          point: any,
+          params: any,
+          dom: any,
+          rect: any,
+          size: any
+        ) {
+          const [x, y] = point;
+          const { viewSize, contentSize } = size;
+          const [vW, vH] = viewSize;
+          const [tW, tH] = contentSize;
+
+          const offsetX = 10;
+          const offsetY = 10;
+
+          let left = x + offsetX;
+          let top = y - tH / 2; // 默认垂直居中于鼠标
+
+          // 左右判断：如果右侧溢出，则显示在左侧
+          if (left + tW > vW) {
+            left = x - tW - offsetX;
+          }
+          // 上下边界修正
+          if (top < 0) top = 5;
+          if (top + tH > vH) top = vH - tH - 5;
+
+          return [left, top];
+        },
+
+        // 2. 还原你之前的 Rich Label 样式
+        formatter: (params: any) => {
+          const data = params[0].data;
+          return `
+            <div style="font-size: 10px; color: #0D0C22; line-height: 1.6;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="color: rgba(13, 12, 34, 0.5);">${
+                  Il8n[currentLang].price
+                }：</span>
+                <span style="font-weight: 500; margin-left: 8px;">${
+                  data[0]
+                }</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: rgba(13, 12, 34, 0.5);">${
+                  Il8n[currentLang].amount
+                }：</span>
+                <span style="font-weight: 500; margin-left: 8px;">${Math.round(
+                  data[1]
+                )}</span>
+              </div>
+            </div>
+          `;
+        },
 
         axisPointer: {
-          type: "line", // 只画单线
-          axis: "x", // ⚠️ 关键属性：只作用于 y 轴
-          // crossStyle: {
-          //   color: "rgba(13, 12, 34, 1)",
-          //   width: 1,
-          //   type: "dashed",
-          // },
-
+          type: "line",
+          axis: "x",
           lineStyle: {
             color: "rgba(13, 12, 34, 1)",
             width: 0.5,
@@ -57,64 +105,45 @@ export default class SimpleChart {
         },
       },
       xAxis: {
-        type: "value", // 1. 修改类型
-        scale: true, // 2. 关键：脱离 0 值，从数据的最小值开始显示
+        type: "value",
+        scale: true,
         boundaryGap: false,
         axisTick: { show: false },
         splitLine: { show: false },
         showMinLabel: false,
         showMaxLabel: false,
-        axisLine: {
-          lineStyle: {
-            color: "#F3F3F4", // ✅ y轴颜色
-          },
-        },
+        axisLine: { lineStyle: { color: "#F3F3F4" } },
         axisPointer: {
           label: {
             show: true,
-            backgroundColor: "#000", // ✅ 改成黑色背景
-            color: "#fff", // 文字颜色（默认白色比较清晰）
+            backgroundColor: "#000",
+            color: "#fff",
             fontSize: 10,
             borderRadius: 2,
           },
         },
         min: "dataMin",
-
         axisLabel: {
-          // showMinLabel: false,
-          // showMaxLabel: false,
           fontSize: 10,
           showMinLabel: true,
           showMaxLabel: true,
           hideOverlap: true,
-          inside: false, // ✅ 数值显示在绘图区里面
-          // margin: 30, // ✅ 调整内边距，防止和边框挤一起
-          formatter: (value, index) => {
-            // console.log("---")
-            // alert(this._data.length);
-            return value;
-            // return value.toFixed(this._tick); // 根据需要保留小数
-            // return index === this._data.length ? "" : value;
-          },
+          inside: false,
+          formatter: (value: any) => value,
         },
       },
-
       yAxis: {
         type: "value",
         position: "right",
         showMinLabel: false,
         splitLine: { show: false },
         axisTick: { show: false },
-        axisLine: {
-          lineStyle: {
-            color: "rgba(13, 12, 34, 0.05);", // ✅ y轴颜色
-          },
-        },
+        axisLine: { lineStyle: { color: "rgba(13, 12, 34, 0.05);" } },
         axisPointer: {
           label: {
             show: true,
-            backgroundColor: "#000", // ✅ 改成黑色背景
-            color: "#fff", // 文字颜色（默认白色比较清晰）
+            backgroundColor: "#000",
+            color: "#fff",
             fontSize: 10,
             borderRadius: 2,
           },
@@ -122,72 +151,35 @@ export default class SimpleChart {
         axisLabel: {
           color: "#868590",
           fontSize: 10,
-          inside: true, // ✅ 数值显示在绘图区里面
-          formatter: function (val) {
-            return val === 0 ? "" : val; // 0 不显示
+          inside: true,
+          formatter: function (val: any) {
+            return val === 0 ? "" : val;
           },
         },
       },
-
       series: [
         {
           data: [],
           type: "line",
           symbol: "circle",
           showSymbol: false,
-          symbolSize: 6, // 默认大小
-          itemStyle: {
-            color: "#EB4B6D", // 默认颜色
-          },
+          symbolSize: 6,
+          itemStyle: { color: "#EB4B6D" },
           smooth: true,
+          // --- 修改：关闭 series 内的 label，改由 tooltip 实现交互显示 ---
           label: {
-            show: true,
-            position: "left",
-            // distance: 10,
-            padding: 8,
-            fontSize: 12,
-            borderRadius: 4,
-            color: "#0D0C22",
-            backgroundColor: "rgba(248, 248, 248, 0.9)", // 整体背景色
-            formatter: function (params) {
-              return [
-                `{key|${Il8n[language].price}：}{value|${params.data[0]}}` +
-                  "\n",
-                `{key|${Il8n[language].amount}：}{value|${Math.round(
-                  params.data[1]
-                )}}`,
-              ].join("\n");
-            },
-            rich: {
-              key: {
-                align: "left", // 左对齐
-                color: "rgba(13, 12, 34, 0.50)",
-                fontSize: 10,
-                padding: [0, 8, 0, 0], // key 和 value 之间的间距
-              },
-              value: {
-                align: "right", // 右对齐
-                color: "#0D0C22",
-                fontSize: 10,
-              },
-            },
+            show: false,
           },
           lineStyle: {
             color: "rgba(235, 75, 109, 1)",
             width: 1,
           },
           areaStyle: {
-            color: new echarts.graphic.LinearGradient(
-              0,
-              0,
-              0,
-              1, // 上到下渐变
-              [
-                { offset: 0, color: "rgba(235, 75, 109, 0.3)" }, // 顶部颜色
-                { offset: 1, color: "rgba(235, 75, 109, 0)" }, // 底部透明
-              ]
-            ),
-            opacity: 1, // 透明度已经在渐变里设置，可以改为 1
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: "rgba(235, 75, 109, 0.3)" },
+              { offset: 1, color: "rgba(235, 75, 109, 0)" },
+            ]),
+            opacity: 1,
           },
         },
       ],
@@ -196,81 +188,50 @@ export default class SimpleChart {
         right: 0,
         top: 10,
         bottom: 3.5,
-        containLabel: true, // false 表示不为了 label 留空
+        containLabel: true,
       },
     };
 
     this._data = [];
-
     this._option = option;
     this.chart = echarts.init(container);
     this.chart.setOption(option);
-
     this.createSellerDiv(container);
   }
 
   public setData(data: any[], priceDecimal?: number): void {
     this._data = [...this._data, ...data];
-    console.log("  this._option----->", this._option);
     this._option.series[0].data = this._data;
-
     if (priceDecimal) {
       let tick =
         String(priceDecimal).indexOf(".") == -1
           ? 0
           : String(priceDecimal).length - 2;
-      this._tick = tick || 2; // 设置小数点位数
+      this._tick = tick || 2;
     }
-
     this.chart.setOption(this._option);
   }
 
   public update(data: any[]): void {
-    // alert("更新");
     this._data = [...data];
-    // this._data = [...data];
     this._option.series[0].data = this._data;
     this.chart.setOption(
       {
-        series: [
-          {
-            data: this._data,
-          },
-        ],
-        xAxis: this.chart.getOption().xAxis, // 保留原来的 xAxis 配置
+        series: [{ data: this._data }],
+        xAxis: this.chart.getOption().xAxis,
       },
       false
-    ); // ✅ 第二个参数 false 表示不 merge 坐标系配置
+    );
   }
 
   private createSellerDiv(container: any) {
     let sell = document.getElementById("sell-layer");
     if (sell) {
       sell.style.display = "flex";
-
       let sellTitle = document.getElementById("sell-layer-title");
       if (sellTitle) {
         sellTitle.innerHTML = Il8n[this._language].seller;
       }
-
-      // sell.innerHTML = `<div style="width:10px;height:10px;background:rgba(235, 75, 109, 1)"/> `;
     }
-
-    // setStyle(sell, {
-    //   position: "absolute",
-    //   display: "none",
-    //   padding: "6px 8px",
-    //   minWidth: "120px",
-    //   fontSize: "11px",
-    //   background: "red",
-    //   borderRadius: "6px",
-    //   zIndex: "1000",
-    //   left: "10px",
-    //   top: "10px",
-    //   width: "40px",
-    //   height: "30px",
-    //   pointerEvents: "none",
-    // });
-    // container.appendChild(sell);
   }
 }
