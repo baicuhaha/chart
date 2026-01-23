@@ -33,36 +33,35 @@ export default class SimpleChart {
         trigger: "axis",
         showContent: true, // 开启显示内容
         confine: true, // 限制在容器内
-        backgroundColor: "rgba(248, 248, 248, 0.9)", // 匹配你之前的背景色
-        borderRadius: 4,
-        padding: 8,
-        borderWidth: 0,
-        extraCssText: "box-shadow: 0 0 8px rgba(0,0,0,0.1);", // 增加微阴影
-
+        backgroundColor: "rgba(248, 248, 248, 1)", // 匹配你之前的背景色
+        borderRadius: 6,
+        padding: [8, 11],
+        borderWidth: 0.5,
+        borderColor: "rgba(36, 36, 36, 0.10);",
+        // extraCssText: "box-shadow: 0 0 8px rgba(0,0,0,0.1);", // 增加微阴影
+        extraCssText: "box-shadow:none;",
         // 1. 处理位置自动翻转
-        position: function (
-          point: any,
-          params: any,
-          dom: any,
-          rect: any,
-          size: any
-        ) {
-          const [x, y] = point;
+        position: (point: any, params: any, dom: any, rect: any, size: any) => {
+          const param = params[0];
+          if (!param || !param.data) return point;
+
+          // 👇 用“当前选中点”的像素位置
+          const [x, y] = this.chart.convertToPixel(
+            { seriesIndex: 0 },
+            param.data,
+          );
+
           const { viewSize, contentSize } = size;
           const [vW, vH] = viewSize;
           const [tW, tH] = contentSize;
 
           const offsetX = 10;
-          const offsetY = 10;
 
           let left = x + offsetX;
-          let top = y - tH / 2; // 默认垂直居中于鼠标
+          let top = y - tH / 2;
 
-          // 左右判断：如果右侧溢出，则显示在左侧
-          if (left + tW > vW) {
-            left = x - tW - offsetX;
-          }
-          // 上下边界修正
+          // 边界处理（你原来就有）
+          if (left + tW > vW) left = x - tW - offsetX;
           if (top < 0) top = 5;
           if (top + tH > vH) top = vH - tH - 5;
 
@@ -72,23 +71,22 @@ export default class SimpleChart {
         // 2. 还原你之前的 Rich Label 样式
         formatter: (params: any) => {
           const data = params[0].data;
+
           return `
-            <div style="font-size: 10px; color: #0D0C22; line-height: 1.6;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <span style="color: rgba(13, 12, 34, 0.5);">${
+            <div style="font-size: 12px; color: #0D0C22; ">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: -2px;">
+                <span style="color: rgba(36, 36, 36, 0.5);">${
                   Il8n[currentLang].price
                 }：</span>
-                <span style="font-weight: 500; margin-left: 8px;">${
+                <span style="font-weight: 400; margin-left: 8px;color:"rgba(36, 36, 36, 1)">${
                   data[0]
                 }</span>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: rgba(13, 12, 34, 0.5);">${
+                <span style="color: rgba(36, 36, 36, 0.5);">${
                   Il8n[currentLang].amount
                 }：</span>
-                <span style="font-weight: 500; margin-left: 8px;">${Math.round(
-                  data[1]
-                )}</span>
+                <span style="font-weight: 400; margin-left: 8px;color:"rgba(36, 36, 36, 1)">${Number(data[1]).toFixed(this._tick)}</span>
               </div>
             </div>
           `;
@@ -107,6 +105,8 @@ export default class SimpleChart {
       xAxis: {
         type: "value",
         scale: true,
+        min: (value: any) => value.min,
+        max: (value: any) => value.max,
         boundaryGap: false,
         axisTick: { show: false },
         splitLine: { show: false },
@@ -115,7 +115,7 @@ export default class SimpleChart {
         axisLine: { lineStyle: { color: "#F3F3F4" } },
         axisPointer: {
           label: {
-            show: true,
+            show: false,
             backgroundColor: "#000",
             color: "#fff",
             fontSize: 10,
@@ -125,8 +125,8 @@ export default class SimpleChart {
         min: "dataMin",
         axisLabel: {
           fontSize: 10,
-          showMinLabel: true,
-          showMaxLabel: true,
+          showMinLabel: false,
+          showMaxLabel: false,
           hideOverlap: true,
           inside: false,
           formatter: (value: any) => value,
@@ -160,12 +160,27 @@ export default class SimpleChart {
       series: [
         {
           data: [],
+          z: 200,
           type: "line",
           symbol: "circle",
           showSymbol: false,
-          symbolSize: 6,
+          symbolSize: 8,
           itemStyle: { color: "#EB4B6D" },
-          smooth: true,
+          // ===== 选中状态 =====
+          emphasis: {
+            scale: false,
+            focus: "none",
+
+            itemStyle: {
+              color: "#EB4B6D", // 圆点填充色
+              borderColor: "#fff",
+
+              borderWidth: 1,
+
+              // opacity: 1,
+            },
+          },
+          smooth: false,
           // --- 修改：关闭 series 内的 label，改由 tooltip 实现交互显示 ---
           label: {
             show: false,
@@ -174,9 +189,10 @@ export default class SimpleChart {
             color: "rgba(235, 75, 109, 1)",
             width: 1,
           },
+
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: "rgba(235, 75, 109, 0.3)" },
+              { offset: 0, color: "rgba(235, 75, 109, 0.2)" },
               { offset: 1, color: "rgba(235, 75, 109, 0)" },
             ]),
             opacity: 1,
@@ -203,11 +219,11 @@ export default class SimpleChart {
     this._data = [...this._data, ...data];
     this._option.series[0].data = this._data;
     if (priceDecimal) {
-      let tick =
-        String(priceDecimal).indexOf(".") == -1
-          ? 0
-          : String(priceDecimal).length - 2;
-      this._tick = tick || 2;
+      // let tick =
+      //   String(priceDecimal).indexOf(".") == -1
+      //     ? 0
+      //     : String(priceDecimal).length - 2;
+      this._tick = priceDecimal || 2;
     }
     this.chart.setOption(this._option);
   }
@@ -220,7 +236,7 @@ export default class SimpleChart {
         series: [{ data: this._data }],
         xAxis: this.chart.getOption().xAxis,
       },
-      false
+      false,
     );
   }
 

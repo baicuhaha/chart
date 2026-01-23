@@ -2,7 +2,7 @@
 import * as echarts from "echarts";
 import { UTCTimestamp } from "lightweight-charts";
 import Il8n from "./i18n/index";
-
+import { setStyle, formatTimestamp } from "./utils/util";
 type ChartType = "Line";
 
 export interface LinePoint {
@@ -21,8 +21,8 @@ interface ConstructorParams {
 }
 
 /** ================== 尺寸常量 ================== */
-const TOTAL_HEIGHT = 304;
-const GRID_TOP = 22;
+const TOTAL_HEIGHT = 324;
+const GRID_TOP = 47;
 const GRID_BOTTOM = 22;
 const CHART_HEIGHT = TOTAL_HEIGHT - GRID_TOP - GRID_BOTTOM;
 
@@ -30,8 +30,20 @@ const CHART_HEIGHT = TOTAL_HEIGHT - GRID_TOP - GRID_BOTTOM;
 const formatMap: Record<string, Intl.DateTimeFormatOptions> = {
   all: { year: "numeric", month: "2-digit", day: "2-digit" },
   "1y": { year: "numeric", month: "2-digit", day: "2-digit" },
-  "6m": { month: "2-digit", day: "2-digit" },
-  "1m": { month: "2-digit", day: "2-digit" },
+  "6m": {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  },
+  "1m": {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  },
   "1w": {
     month: "2-digit",
     day: "2-digit",
@@ -53,6 +65,11 @@ export default class SimpleChart {
   private _timeRange = "1m";
   private _from = "";
   private _isFullScreen = false;
+  private _crossTip!: HTMLDivElement;
+
+  private _lastDataIndex: number;
+  private longPressTimer: any = null;
+  private isLongPress = false;
 
   constructor({ container, language, options = {} }: ConstructorParams) {
     this.container = container;
@@ -65,6 +82,72 @@ export default class SimpleChart {
 
     this.chart = echarts.init(container);
     this.chart.setOption(this.getBaseOption());
+
+    this.chart.on("updateAxisPointer", (event) => {
+      const xAxisInfo = event.axesInfo?.[0];
+      if (!xAxisInfo) return;
+
+      const dataIndex = xAxisInfo.value; // 🔴 就是 index
+
+      if (
+        typeof dataIndex !== "number" ||
+        dataIndex < 0 ||
+        dataIndex >= this._data.length
+      ) {
+        return;
+      }
+      this._lastDataIndex = dataIndex;
+      this.updateCrossTooltip(dataIndex);
+    });
+
+    this.createCrossTooltip(container);
+
+    // this.chart.on("hideTip", () => {
+    //   // alert(1);
+    //   if (this._lastDataIndex != null) {
+    //     this.showCrossAt(this._lastDataIndex);
+    //   }
+    // });
+
+    this.setTrigger();
+
+    // 核心：处理鼠标移出容器
+    // 在 constructor 内部添加
+    // this.chart.getZr().on("globalout", () => {
+    //   if (this._data.length === 0) return;
+
+    //   // 获取最后一个点的索引
+    //   const lastIndex = this._data.length - 1;
+
+    //   // 🔴 关键：强行让 ECharts 重新渲染该位置的 axisPointer
+    //   this.chart.dispatchAction({
+    //     type: "showTip", // 虽然名字叫 showTip，但它会同时触发 axisPointer 的显示
+    //     seriesIndex: 0,
+    //     dataIndex: lastIndex,
+    //   });
+
+    //   // 同步更新你的自定义 Tooltip
+    //   this.updateCrossTooltip(lastIndex);
+    // });
+
+    // this.chart.on("hideTip", () => {
+    //   this._crossTip.style.display = "none";
+    // });
+
+    // this.chart.on("mousemove", (params) => {
+    //   if (!params || params.dataIndex == null) return;
+
+    //   this.chart.dispatchAction({
+    //     type: "showTip",
+    //     xAxisIndex: 0,
+    //     dataIndex: params.dataIndex,
+    //   });
+    // });
+    // this.chart.getZr().on("mouseleave", () => {
+    //   // this.chart.dispatchAction({
+    //   //   type: "hideTip",
+    //   // });
+    // });
   }
 
   /* ================== public ================== */
@@ -73,7 +156,7 @@ export default class SimpleChart {
     data: LinePoint[],
     priceDecimal?: number,
     timeType?: string,
-    from?: string
+    from?: string,
   ) {
     this._data = data || [];
     this._timeRange = timeType || "1m";
@@ -87,8 +170,21 @@ export default class SimpleChart {
     }
 
     const { xData, yData } = this.buildSeriesData(this._data);
-    const maxVal = Math.max(...yData);
-    const minVal = Math.min(...yData);
+    let maxVal = Math.max(...yData);
+    let minVal = Math.min(...yData);
+    const onlyOne = yData.length === 1;
+
+    if (onlyOne) {
+      // ⭐ 垂直居中核心逻辑：
+      // 给 Y 轴设置一个以当前值为中心，上下浮动 10% 的范围
+      const val = yData[0];
+      const offset = Math.abs(val) * 0.1 || 1; // 如果值为0，默认偏移1
+      minVal = val - offset;
+      maxVal = val + offset;
+    } else {
+      minVal = Math.min(...yData);
+      maxVal = Math.max(...yData);
+    }
 
     this.chart.setOption({
       yAxis: {
@@ -96,7 +192,23 @@ export default class SimpleChart {
         max: maxVal,
       },
       xAxis: { data: xData },
-      series: [{ data: yData }],
+      series: [
+        {
+          data: yData,
+          showSymbol: onlyOne,
+          itemStyle: onlyOne
+            ? {
+                color: "#24AA56",
+                borderColor: "#fff",
+                borderWidth: 1,
+              }
+            : {
+                color: "#24AA56",
+                borderColor: "#24AA56",
+                borderWidth: 0,
+              },
+        },
+      ],
     });
 
     setTimeout(() => this.renderCustomExtrema(yData), 0);
@@ -114,8 +226,21 @@ export default class SimpleChart {
   public replaceLineData(data: LinePoint[]) {
     this._data = [...data];
     const { xData, yData } = this.buildSeriesData(this._data);
-    const maxVal = Math.max(...yData);
-    const minVal = Math.min(...yData);
+    let maxVal = Math.max(...yData);
+    let minVal = Math.min(...yData);
+    const onlyOne = yData.length === 1;
+
+    if (onlyOne) {
+      // ⭐ 垂直居中核心逻辑：
+      // 给 Y 轴设置一个以当前值为中心，上下浮动 10% 的范围
+      const val = yData[0];
+      const offset = Math.abs(val) * 0.1 || 1; // 如果值为0，默认偏移1
+      minVal = val - offset;
+      maxVal = val + offset;
+    } else {
+      minVal = Math.min(...yData);
+      maxVal = Math.max(...yData);
+    }
 
     this.chart.setOption({
       yAxis: {
@@ -123,7 +248,23 @@ export default class SimpleChart {
         max: maxVal,
       },
       xAxis: { data: xData },
-      series: [{ data: yData }],
+      series: [
+        {
+          data: yData,
+          showSymbol: onlyOne,
+          itemStyle: onlyOne
+            ? {
+                color: "#24AA56",
+                borderColor: "#fff",
+                borderWidth: 1,
+              }
+            : {
+                color: "#24AA56",
+                borderColor: "#24AA56",
+                borderWidth: 0,
+              },
+        },
+      ],
     });
 
     setTimeout(() => this.renderCustomExtrema(yData), 0);
@@ -138,7 +279,6 @@ export default class SimpleChart {
   private getBaseOption(): echarts.EChartsOption {
     return {
       animation: false,
-
       grid: {
         left: 0,
         right: 0,
@@ -168,7 +308,9 @@ export default class SimpleChart {
       },
 
       tooltip: {
-        trigger: "axis",
+        show: false, // ✅ 完全关闭 tooltip
+        trigger: "axis", // ✅ 不触发任何 tooltip
+        showContent: false, // ✅ 关键
         backgroundColor: "rgba(37, 37, 37, 1)",
         padding: [4, 10],
         borderRadius: 6,
@@ -185,6 +327,9 @@ export default class SimpleChart {
             width: 0.5,
             type: "dashed", // dashed / solid
           },
+          handle: {
+            show: false,
+          },
         },
         borderWidth: 0,
 
@@ -197,8 +342,14 @@ export default class SimpleChart {
           z: 200,
           smooth: false,
           showSymbol: false,
+          clip: false,
           sampling: "lttb",
-          lineStyle: { width: 1.5, color: "#30BD65" },
+          // itemStyle: {
+          //   color: "#24AA56", // ✅ normal 状态
+          //   borderColor: "#fff",
+          //   borderWidth: 1,
+          // },
+          lineStyle: { width: 1.5, color: "#24AA56" },
           areaStyle: {
             color: {
               type: "linear",
@@ -215,14 +366,14 @@ export default class SimpleChart {
           },
 
           symbol: "circle",
-          symbolSize: 6,
+          symbolSize: 8,
           // ===== 选中状态 =====
           emphasis: {
             scale: false,
             focus: "none",
 
             itemStyle: {
-              color: "#30BD65", // 圆点填充色
+              color: "#24AA56", // 圆点填充色
               borderColor: "#fff",
 
               borderWidth: 1,
@@ -248,10 +399,50 @@ export default class SimpleChart {
     return { xData, yData };
   }
 
+  // private formatTime(time: UTCTimestamp) {
+  //   const date = new Date(time * 1000);
+  //   const options = formatMap[this._timeRange] ?? formatMap["1m"];
+
+  //   return date.toLocaleString(this._language, options).replace(",", "");
+  // }
   private formatTime(time: UTCTimestamp) {
     const date = new Date(time * 1000);
     const options = formatMap[this._timeRange] ?? formatMap["1m"];
-    return date.toLocaleString(this._language, options).replace(",", "");
+
+    const parts = new Intl.DateTimeFormat(this._language, {
+      ...options,
+      timeZone: "Etc/GMT-8", // ✅ UTC+8
+    }).formatToParts(date);
+
+    const map: Record<string, string> = {};
+    parts.forEach((p) => {
+      if (p.type !== "literal") {
+        map[p.type] = p.value;
+      }
+    });
+
+    const isZh = this._language.startsWith("zh");
+
+    // 年月日
+    if (map.year && map.month && map.day) {
+      return isZh
+        ? `${map.year}年${map.month}月${map.day}日`
+        : `${map.year}/${map.month}/${map.day}`;
+    }
+
+    // 月日 + 时间
+    if (map.month && map.day && map.hour && map.minute) {
+      return isZh
+        ? `${map.month}月${map.day}日 ${map.hour}:${map.minute}`
+        : `${map.month}/${map.day} ${map.hour}:${map.minute}`;
+    }
+
+    // 仅时间
+    if (map.hour && map.minute) {
+      return `${map.hour}:${map.minute}`;
+    }
+
+    return "";
   }
 
   private formatTooltip(params: any[]) {
@@ -267,7 +458,7 @@ export default class SimpleChart {
     // `;
 
     return `
-        <div style="font-family: Arial, Helvetica, sans-serif;min-width:90px;padding:0px; ">
+        <div style="min-width:90px;padding:0px; ">
             <div style="display: flex;justify-content: space-between; align-items:center">
               <span style="color:rgba(255, 255, 255, 0.5);font-size:10px ">${
                 Il8n[this._language].time
@@ -278,12 +469,10 @@ export default class SimpleChart {
             </div>
             <div style="display: flex;justify-content: space-between;margin-bottom: 0px; align-items:center">
               <span style="color:rgba(255, 255, 255, 0.5);font-size:10px ">${
-                this._from === "MAIN"
-                  ? Il8n[this._language].price
-                  : Il8n[this._language].avgPrice
+                Il8n[this._language].price
               }</span>
               <span style="font-size:10px;color:rgba(255, 255, 255, 1)">${Number(
-                p.data
+                p.data,
               ).toFixed(this._tick)}</span>
             </div>
      
@@ -292,96 +481,45 @@ export default class SimpleChart {
   }
 
   /** ================== 最值渲染（固定上下） ================== */
-  // private renderCustomExtrema(values: number[]) {
-  //   if (!values.length) return;
-
-  //   const maxVal = Math.max(...values);
-  //   const minVal = Math.min(...values);
-  //   const maxIdx = values.indexOf(maxVal);
-  //   const minIdx = values.lastIndexOf(minVal);
-
-  //   const maxPos = this.chart.convertToPixel({ seriesIndex: 0 }, [
-  //     maxIdx,
-  //     maxVal,
-  //   ]);
-  //   const minPos = this.chart.convertToPixel({ seriesIndex: 0 }, [
-  //     minIdx,
-  //     minVal,
-  //   ]);
-
-  //   const chartWidth = this.chart.getWidth();
-  //   const chartHeight = this.chart.getHeight();
-
-  //   const FONT_SIZE = 12;
-  //   const LABEL_HEIGHT = 14;
-  //   const GAP = 4;
-
-  //   const maxText = "$" + maxVal.toFixed(this._tick);
-  //   const minText = "$" + minVal.toFixed(this._tick);
-
-  //   const maxTextWidth = this.measureTextWidth(maxText, FONT_SIZE);
-  //   const minTextWidth = this.measureTextWidth(minText, FONT_SIZE);
-
-  //   /** Y 方向 clamp */
-  //   const clampY = (y: number) =>
-  //     Math.max(0, Math.min(y, chartHeight - LABEL_HEIGHT));
-
-  //   /** X 方向 clamp */
-  //   const clampX = (x: number, w: number) =>
-  //     Math.max(0, Math.min(x, chartWidth - w));
-
-  //   // 理想位置：点的上方 / 下方
-  //   const maxTop = clampY(maxPos[1] - LABEL_HEIGHT - GAP);
-  //   //这是原来的 跟这个Y位置有关
-  //   // const minTop = clampY(minPos[1] + GAP);
-
-  //   const minTop = clampY(chartHeight - LABEL_HEIGHT + GAP);
-
-  //   // 理想居中
-  //   const maxLeft = clampX(maxPos[0] - maxTextWidth / 2, maxTextWidth);
-  //   const minLeft = clampX(minPos[0] - minTextWidth / 2, minTextWidth);
-
-  //   this.chart.setOption({
-  //     graphic: [
-  //       {
-  //         id: "max-label",
-  //         type: "text",
-  //         left: maxLeft,
-  //         top: maxTop,
-  //         silent: true,
-  //         z: 100,
-  //         style: {
-  //           text: maxText,
-  //           fontSize: FONT_SIZE,
-  //           fill: "rgba(36, 36, 36, 0.6)",
-  //         },
-  //       },
-  //       {
-  //         id: "min-label",
-  //         type: "text",
-  //         left: minLeft,
-  //         top: minTop,
-  //         silent: true,
-  //         z: 100,
-  //         style: {
-  //           text: minText,
-  //           fontSize: FONT_SIZE,
-  //           fill: "rgba(36, 36, 36, 0.6)",
-  //         },
-  //       },
-  //     ],
-  //   });
-  // }
-
+  /** ================== 最值渲染 (Category 模式优化版) ================== */
   private renderCustomExtrema(values: number[]) {
-    if (!values.length) return;
+    if (!values || !values.length || values.length == 1) return;
+    if (`${this._tick}` == "0") {
+      return;
+    }
 
-    const maxVal = Math.max(...values);
-    const minVal = Math.min(...values);
+    // 所有值相等，不显示
+    const first = values[0];
+    if (values.every((v) => v === first)) return;
 
-    // ✅ 第一个极值（最早出现）
-    const maxIdx = values.findIndex((v) => v === maxVal);
-    const minIdx = values.findIndex((v) => v === minVal);
+    // 1. 找到绝对最大/最小值
+    const originMax = Math.max(...values);
+    const originMin = Math.min(...values);
+
+    // 2. 核心修改：模拟 UI 显示精度进行查找
+    // 这样即便数据是 2.27999 和 2.28，在 toFixed(this._tick) 之后它们会被视为“同一个值”
+    const format = (v: number) => v.toFixed(this._tick);
+    const targetMaxStr = format(originMax);
+    const targetMinStr = format(originMin);
+
+    // 使用 findIndex 找到第一个在字符串显示上等于极值的索引
+    const maxIdx = values.findIndex((v) => format(v) === targetMaxStr);
+    const minIdx = values.findIndex((v) => format(v) === targetMinStr);
+
+    // 如果没找到（防抖处理），回退到原逻辑
+    const finalMaxIdx = maxIdx !== -1 ? maxIdx : values.indexOf(originMax);
+    const finalMinIdx = minIdx !== -1 ? minIdx : values.indexOf(originMin);
+
+    // 3. 转换坐标
+    // 注意：如果开启了 sampling: 'lttb'，convertToPixel 可能会有微小偏移
+    const maxPos = this.chart.convertToPixel({ seriesIndex: 0 }, [
+      finalMaxIdx,
+      originMax,
+    ]);
+    const minPos = this.chart.convertToPixel({ seriesIndex: 0 }, [
+      finalMinIdx,
+      originMin,
+    ]);
 
     const chartWidth = this.chart.getWidth();
     const chartHeight = this.chart.getHeight();
@@ -390,26 +528,27 @@ export default class SimpleChart {
     const LABEL_HEIGHT = 14;
     const GAP = 4;
 
-    const maxText = "$" + maxVal.toFixed(this._tick);
-    const minText = "$" + minVal.toFixed(this._tick);
+    // 统一显示文本
+    const maxText = "$" + targetMaxStr;
+    const minText = "$" + targetMinStr;
 
     const maxTextWidth = this.measureTextWidth(maxText, FONT_SIZE);
     const minTextWidth = this.measureTextWidth(minText, FONT_SIZE);
 
-    // ⚠️ 只用 xAxisIndex + index 算 X（关键）
-    const maxX = this.chart.convertToPixel({ xAxisIndex: 0 }, maxIdx) as number;
+    /** Y 方向 clamp */
+    const clampY = (y: number) =>
+      Math.max(0, Math.min(y, chartHeight - LABEL_HEIGHT));
 
-    const minX = this.chart.convertToPixel({ xAxisIndex: 0 }, minIdx) as number;
-
+    /** X 方向 clamp */
     const clampX = (x: number, w: number) =>
       Math.max(0, Math.min(x, chartWidth - w));
 
-    const maxLeft = clampX(maxX - maxTextWidth / 2, maxTextWidth);
-    const minLeft = clampX(minX - minTextWidth / 2, minTextWidth);
+    // 计算位置
+    const maxTop = clampY(maxPos[1] - LABEL_HEIGHT - GAP);
+    const minTop = clampY(minPos[1] + GAP);
 
-    // ✅ Y 固定：最高贴顶，最低贴底
-    const maxTop = GAP;
-    const minTop = chartHeight - LABEL_HEIGHT - GAP;
+    const maxLeft = clampX(maxPos[0] - maxTextWidth / 2, maxTextWidth);
+    const minLeft = clampX(minPos[0] - minTextWidth / 2, minTextWidth);
 
     this.chart.setOption({
       graphic: [
@@ -423,7 +562,7 @@ export default class SimpleChart {
           style: {
             text: maxText,
             fontSize: FONT_SIZE,
-            fill: "rgba(36,36,36,0.6)",
+            fill: "rgba(36, 36, 36, 0.6)",
           },
         },
         {
@@ -436,17 +575,249 @@ export default class SimpleChart {
           style: {
             text: minText,
             fontSize: FONT_SIZE,
-            fill: "rgba(36,36,36,0.6)",
+            fill: "rgba(36, 36, 36, 0.6)",
           },
         },
       ],
     });
   }
-
   private measureTextWidth(text: string, fontSize = 12) {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
     ctx.font = `${fontSize}px sans-serif`;
     return ctx.measureText(text).width;
+  }
+  private createCrossTooltip(container: HTMLElement) {
+    const div = document.createElement("div");
+    div.style.position = "absolute";
+    div.style.top = "0px"; // 🔴 永远在折线图顶部
+    div.style.left = "0";
+    div.style.transform = "translateX(-50%)";
+    div.style.pointerEvents = "none";
+    div.style.zIndex = "10";
+    div.style.background = "rgba(255, 255, 255, 1)";
+    div.style.display = "none";
+    div.style.whiteSpace = "nowrap"; // ⭐ 禁止换行
+    div.style.wordBreak = "keep-all"; // ⭐ 禁止中英文断词
+
+    div.style.minWidth = "48px";
+
+    container.style.position = "relative";
+    container.appendChild(div);
+
+    this._crossTip = div;
+
+    this._crossTip.addEventListener(
+      "touchstart",
+      (e) => {
+        e.stopPropagation();
+      },
+      { passive: false },
+    );
+
+    this._crossTip.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+    });
+  }
+  private updateCrossTooltip(dataIndex: number) {
+    if (!this._crossTip) return;
+    // if (!this._data[dataIndex]) return;
+
+    const point = this._data[dataIndex];
+
+    // 1️⃣ 更新内容
+    this._crossTip.innerHTML = `
+    <div style="font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;text-align:center;border:0.5px solid rgba(0, 0, 0, 0.1);padding:4px 8px;border-radius:6px">
+      <div style="font-weight:500;color:rgba(36, 36, 36, 1);font-size:12px">
+        ${"$" + point.value.toFixed(this._tick)}
+      </div>
+      <div style="font-size:12px;color:rgba(36, 36, 36, 0.6);">
+        ${this.formatTime(point.time)}
+      </div>
+    </div>
+  `;
+
+    // 2️⃣ index → 像素 X（⚠️ 关键）
+    const x = this.chart.convertToPixel({ xAxisIndex: 0 }, dataIndex);
+
+    // 3️⃣ 贴边控制
+    const containerWidth = this.chart.getDom().clientWidth;
+    const tipWidth = this._crossTip.offsetWidth;
+
+    let left = x;
+    const minLeft = tipWidth / 2;
+    const maxLeft = containerWidth - tipWidth / 2;
+
+    if (left < minLeft) left = minLeft;
+    if (left > maxLeft) left = maxLeft;
+
+    if (x === containerWidth) {
+      left = containerWidth - 50;
+    }
+    if (x === 0) {
+      left = 50;
+    }
+
+    // 4️⃣ 设置位置（Y 永远不动）
+    this._crossTip.style.left = `${left}px`;
+    this._crossTip.style.display = "block";
+  }
+
+  /** 显示十字线和自定义 Tooltip */
+  public showCrossAt(index: number) {
+    if (!this._data || !this._data.length) return;
+
+    const point = this._data[index];
+    if (!point) return;
+
+    // 更新自定义 tooltip
+    this.updateCrossTooltip(index);
+
+    // 显示 ECharts axisPointer（可选）
+    // this.chart.dispatchAction({
+    //   type: "updateAxisPointer",
+    //   xAxisIndex: 0,
+    //   seriesIndex: 0,
+    //   dataIndex: index,
+    // });
+
+    // 显示 ECharts 十字线
+    this.chart.setOption({
+      tooltip: {
+        show: true,
+      },
+    });
+    this.chart.dispatchAction({
+      type: "showTip",
+      seriesIndex: 0,
+      dataIndex: index,
+    });
+  }
+
+  /** 隐藏十字线和自定义 Tooltip */
+  public hideCross() {
+    if (this._crossTip) this._crossTip.style.display = "none";
+
+    this.chart.setOption({
+      tooltip: {
+        show: false,
+      },
+    });
+  }
+
+  private setTrigger() {
+    const touchStartHandler = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+
+      this.isLongPress = false;
+
+      // 500ms 触发长按
+      this.longPressTimer = setTimeout(() => {
+        this.isLongPress = true;
+        const touch = e.touches[0];
+        const rect = this.chart.getDom().getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+
+        const containerWidth = rect.width;
+        const dataLen = this._data.length;
+        if (!dataLen) return;
+
+        let dataIndex: number;
+
+        // 在折线图范围内，按比例计算
+        dataIndex = Math.floor((x / containerWidth) * dataLen);
+        this.showCrossAt(dataIndex);
+      }, 500);
+    };
+
+    const touchMoveHandler = (e: TouchEvent) => {
+      // if (e.touches.length !== 1) return;
+
+      // // 如果是长按触发或者滑动触发才显示
+      // if (!this.isLongPress) {
+      //   clearTimeout(this.longPressTimer);
+      //   return;
+      // }
+
+      // const touch = e.touches[0];
+      // const pointInPixel = this.chart.convertFromPixel({ xAxisIndex: 0 }, [
+      //   touch.clientX,
+      //   0,
+      // ]);
+      // const dataIndex = Math.round(pointInPixel as number);
+
+      // if (dataIndex >= 0 && dataIndex < this._data.length) {
+      //   this.showCrossAt(dataIndex);
+      // }
+
+      const touch = e.changedTouches?.[0];
+      if (!touch) return;
+
+      const rect = this.chart.getDom().getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+
+      const width = rect.width;
+      const len = this._data.length;
+      if (!len) return;
+
+      let index: number;
+
+      if (x < 0) {
+        // 👈 左吸附
+        index = 0;
+        this.showCrossAt(index);
+      } else if (x > width) {
+        // 👉 右吸附
+        index = len - 1;
+        this.showCrossAt(index);
+      } else {
+        this.showCrossAt(index);
+      }
+    };
+
+    const touchEndHandler = (e: TouchEvent) => {
+      clearTimeout(this.longPressTimer);
+      this.hideCross();
+    };
+
+    const touchEndHandlerRef = (e: TouchEvent) => {
+      const touch = e.changedTouches?.[0];
+      if (!touch) return;
+
+      const rect = this.chart.getDom().getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+
+      const width = rect.width;
+      const len = this._data.length;
+      if (!len) return;
+
+      let index: number;
+
+      if (x < 0) {
+        // 👈 左吸附
+        index = 0;
+        this.showCrossAt(index);
+      } else if (x > width) {
+        // 👉 右吸附
+        index = len - 1;
+        this.showCrossAt(index);
+      } else {
+        // this.hideCross();
+      }
+    };
+
+    // 绑定事件
+    this.container.addEventListener("touchstart", touchStartHandler, {
+      passive: true,
+    });
+    this.container.addEventListener("touchmove", touchMoveHandler, {
+      passive: true,
+    });
+    this.container.addEventListener("touchend", touchEndHandler);
+    this.container.addEventListener("touchcancel", touchEndHandler);
+  }
+  private calcIndexByX(x: number, width: number, len: number) {
+    if (len <= 1) return 0;
+    return Math.floor((x / width) * len);
   }
 }

@@ -93,7 +93,7 @@ function init() {
       if (isJSON(res)) {
         let { data, type, priceDecimal, timeType, dataType, from } =
           JSON.parse(res);
-        console.log("data------init---xxxx---->", data, type, priceDecimal);
+        // console.log("data------init---xxxx---->", data, type, priceDecimal);
         if (type === "init") {
           kchart && kchart.setData(data, priceDecimal, timeType, from);
           requestAnimationFrame(() => {
