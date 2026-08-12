@@ -25,6 +25,8 @@ const TOTAL_HEIGHT = 324;
 const GRID_TOP = 47;
 const GRID_BOTTOM = 22;
 const CHART_HEIGHT = TOTAL_HEIGHT - GRID_TOP - GRID_BOTTOM;
+//最大值和最小值 左右间距
+const EDGE_PADDING = 16;
 
 /** ================== 时间格式 ================== */
 const formatMap: Record<string, Intl.DateTimeFormatOptions> = {
@@ -186,6 +188,12 @@ export default class SimpleChart {
       maxVal = Math.max(...yData);
     }
 
+    const lastIndex = yData.length - 1;
+    const lastVal = yData[lastIndex];
+
+    const values = data.map((i) => i.value);
+    const trend = this.getTrendStyle(values);
+
     this.chart.setOption({
       yAxis: {
         min: minVal,
@@ -196,17 +204,44 @@ export default class SimpleChart {
         {
           data: yData,
           showSymbol: onlyOne,
+          emphasis: {
+            scale: false,
+            focus: "none",
+
+            itemStyle: {
+              color: trend.pointColor, // 圆点填充色
+              borderColor: "#fff",
+
+              borderWidth: 1,
+
+              // opacity: 1,
+            },
+          },
           itemStyle: onlyOne
             ? {
-                color: "#24AA56",
+                color: trend.pointColor,
                 borderColor: "#fff",
                 borderWidth: 1,
               }
             : {
-                color: "#24AA56",
-                borderColor: "#24AA56",
+                color: trend.pointColor,
+                borderColor: trend.pointColor,
                 borderWidth: 0,
               },
+
+          lineStyle: {
+            color: trend.lineColor,
+          },
+          areaStyle: {
+            color: trend.areaColor,
+          },
+        },
+        {
+          data: lastVal != null ? [[lastIndex, lastVal]] : [],
+
+          itemStyle: {
+            color: trend.pointColor,
+          },
         },
       ],
     });
@@ -241,7 +276,11 @@ export default class SimpleChart {
       minVal = Math.min(...yData);
       maxVal = Math.max(...yData);
     }
+    const lastIndex = yData.length - 1;
+    const lastVal = yData[lastIndex];
 
+    const values = data.map((i) => i.value);
+    const trend = this.getTrendStyle(values);
     this.chart.setOption({
       yAxis: {
         min: minVal,
@@ -251,18 +290,43 @@ export default class SimpleChart {
       series: [
         {
           data: yData,
+          emphasis: {
+            scale: false,
+            focus: "none",
+
+            itemStyle: {
+              color: trend.pointColor, // 圆点填充色
+              borderColor: "#fff",
+
+              borderWidth: 1,
+
+              // opacity: 1,
+            },
+          },
           showSymbol: onlyOne,
           itemStyle: onlyOne
             ? {
-                color: "#24AA56",
+                color: trend.pointColor,
                 borderColor: "#fff",
                 borderWidth: 1,
               }
             : {
-                color: "#24AA56",
-                borderColor: "#24AA56",
+                color: trend.pointColor,
+                borderColor: trend.pointColor,
                 borderWidth: 0,
               },
+          lineStyle: {
+            color: trend.lineColor,
+          },
+          areaStyle: {
+            color: trend.areaColor,
+          },
+        },
+        {
+          data: lastVal != null ? [[lastIndex, lastVal]] : [],
+          itemStyle: {
+            color: trend.pointColor,
+          },
         },
       ],
     });
@@ -280,8 +344,8 @@ export default class SimpleChart {
     return {
       animation: false,
       grid: {
-        left: 0,
-        right: 0,
+        left: 16,
+        right: 16,
         top: GRID_TOP,
         bottom: GRID_BOTTOM,
         containLabel: false,
@@ -382,6 +446,22 @@ export default class SimpleChart {
             },
           },
           data: [],
+        },
+        {
+          type: "effectScatter",
+          z: 300,
+          symbol: "circle",
+          symbolSize: 4,
+          data: [],
+          rippleEffect: {
+            scale: 4,
+            period: 3,
+            number: 3,
+            brushType: "stroke",
+          },
+          itemStyle: {
+            color: "#24AA56",
+          },
         },
       ],
     };
@@ -497,21 +577,17 @@ export default class SimpleChart {
     const originMin = Math.min(...values);
 
     // 2. 核心修改：模拟 UI 显示精度进行查找
-    // 这样即便数据是 2.27999 和 2.28，在 toFixed(this._tick) 之后它们会被视为“同一个值”
     const format = (v: number) => v.toFixed(this._tick);
     const targetMaxStr = format(originMax);
     const targetMinStr = format(originMin);
 
-    // 使用 findIndex 找到第一个在字符串显示上等于极值的索引
     const maxIdx = values.findIndex((v) => format(v) === targetMaxStr);
     const minIdx = values.findIndex((v) => format(v) === targetMinStr);
 
-    // 如果没找到（防抖处理），回退到原逻辑
     const finalMaxIdx = maxIdx !== -1 ? maxIdx : values.indexOf(originMax);
     const finalMinIdx = minIdx !== -1 ? minIdx : values.indexOf(originMin);
 
     // 3. 转换坐标
-    // 注意：如果开启了 sampling: 'lttb'，convertToPixel 可能会有微小偏移
     const maxPos = this.chart.convertToPixel({ seriesIndex: 0 }, [
       finalMaxIdx,
       originMax,
@@ -528,7 +604,6 @@ export default class SimpleChart {
     const LABEL_HEIGHT = 14;
     const GAP = 4;
 
-    // 统一显示文本
     const maxText = "$" + targetMaxStr;
     const minText = "$" + targetMinStr;
 
@@ -539,11 +614,10 @@ export default class SimpleChart {
     const clampY = (y: number) =>
       Math.max(0, Math.min(y, chartHeight - LABEL_HEIGHT));
 
-    /** X 方向 clamp */
+    /** X 方向 clamp（左右各留 16px） */
     const clampX = (x: number, w: number) =>
-      Math.max(0, Math.min(x, chartWidth - w));
+      Math.max(EDGE_PADDING, Math.min(x, chartWidth - w - EDGE_PADDING));
 
-    // 计算位置
     const maxTop = clampY(maxPos[1] - LABEL_HEIGHT - GAP);
     const minTop = clampY(minPos[1] + GAP);
 
@@ -581,6 +655,7 @@ export default class SimpleChart {
       ],
     });
   }
+
   private measureTextWidth(text: string, fontSize = 12) {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
@@ -621,13 +696,16 @@ export default class SimpleChart {
   }
   private updateCrossTooltip(dataIndex: number) {
     if (!this._crossTip) return;
-    // if (!this._data[dataIndex]) return;
 
     const point = this._data[dataIndex];
 
     // 1️⃣ 更新内容
     this._crossTip.innerHTML = `
-    <div style="font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;text-align:center;border:0.5px solid rgba(0, 0, 0, 0.1);padding:4px 8px;border-radius:6px">
+    <div style="font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+                text-align:center;
+                border:0.5px solid rgba(0, 0, 0, 0.1);
+                padding:4px 8px;
+                border-radius:6px">
       <div style="font-weight:500;color:rgba(36, 36, 36, 1);font-size:12px">
         ${"$" + point.value.toFixed(this._tick)}
       </div>
@@ -637,28 +715,22 @@ export default class SimpleChart {
     </div>
   `;
 
-    // 2️⃣ index → 像素 X（⚠️ 关键）
+    // 2️⃣ index → 像素 X
     const x = this.chart.convertToPixel({ xAxisIndex: 0 }, dataIndex);
 
-    // 3️⃣ 贴边控制
+    // 3️⃣ 左右 16px 留边
     const containerWidth = this.chart.getDom().clientWidth;
     const tipWidth = this._crossTip.offsetWidth;
 
     let left = x;
-    const minLeft = tipWidth / 2;
-    const maxLeft = containerWidth - tipWidth / 2;
+
+    const minLeft = EDGE_PADDING + tipWidth / 2;
+    const maxLeft = containerWidth - EDGE_PADDING - tipWidth / 2;
 
     if (left < minLeft) left = minLeft;
     if (left > maxLeft) left = maxLeft;
 
-    if (x === containerWidth) {
-      left = containerWidth - 50;
-    }
-    if (x === 0) {
-      left = 50;
-    }
-
-    // 4️⃣ 设置位置（Y 永远不动）
+    // 4️⃣ 设置位置
     this._crossTip.style.left = `${left}px`;
     this._crossTip.style.display = "block";
   }
@@ -760,6 +832,18 @@ export default class SimpleChart {
       const len = this._data.length;
       if (!len) return;
 
+      console.log("touch move x:--------->", x);
+      // 🚫 到达左右边缘 16px 内：停止更新十字线
+      if (x <= EDGE_PADDING) {
+        this.showCrossAt(0);
+        return;
+      }
+
+      if (x >= width - EDGE_PADDING) {
+        this.showCrossAt(len - 1);
+        return;
+      }
+      console.log("还在继续-----");
       let index: number;
 
       if (x < 0) {
@@ -816,8 +900,58 @@ export default class SimpleChart {
     this.container.addEventListener("touchend", touchEndHandler);
     this.container.addEventListener("touchcancel", touchEndHandler);
   }
+
   private calcIndexByX(x: number, width: number, len: number) {
     if (len <= 1) return 0;
     return Math.floor((x / width) * len);
+  }
+  //处理涨跌颜色
+  private getTrendStyle(values: number[]) {
+    if (!values || values.length < 2) {
+      return {
+        lineColor: "#16C784",
+        areaColor: "rgba(40,178,92,0.25)",
+        pointColor: "#16C784",
+      };
+    }
+
+    const first = values[0];
+    const last = values[values.length - 1];
+
+    const isUp = last >= first;
+
+    return isUp
+      ? {
+          lineStyle: { width: 1.5, color: "#24AA56" },
+          pointColor: "#24AA56", // 涨：绿
+          areaColor: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: "rgba(40,178,92,0.25)" },
+              { offset: 0.6, color: "rgba(40,178,92,0.05)" },
+              { offset: 1, color: "rgba(40,178,92,0)" },
+            ],
+          },
+        }
+      : {
+          lineColor: "rgba(220, 51, 87, 1)", // 跌：红
+          pointColor: "rgba(220, 51, 87, 1)", // 涨：绿
+          areaColor: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: "rgba(220, 51, 87, 0.25)" },
+              { offset: 0.6, color: "rgba(220, 51, 87, 0.05)" },
+              { offset: 1, color: "rgba(220, 51, 87, 0.00)" },
+            ],
+          },
+        };
   }
 }
