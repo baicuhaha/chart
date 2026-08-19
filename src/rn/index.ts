@@ -1,4 +1,4 @@
-import KlineChartLine from "../indexLine";
+import KlineChartLine from "../indexLightLineNew";
 import KlineChart from "../index";
 import Echarts from "../indexEcharts";
 
@@ -20,6 +20,10 @@ let width = params.get("width");
 let platform = params.get("platform");
 let isFullScreen = params.get("isFullScreen");
 
+// WebView query 参数都是字符串，K 线图创建时转换成实际像素值。
+const chartWidth = width ? Number(width) : undefined;
+const chartHeight = height ? Number(height) : undefined;
+
 let timeout =
   platform === "ios" ? 0 : type === "Line" || type === "depth" ? 1000 : 0;
 
@@ -28,14 +32,13 @@ function init() {
     //加载更多
     let loadMore = () => {
       window?.ReactNativeWebView?.postMessage(
-        JSON.stringify({ type: "update" })
+        JSON.stringify({ type: "update" }),
       );
     };
 
     let kchart = null;
 
     try {
-      console.log("type--------->", type, height);
       if (type === "depth") {
         kchart = new Echarts({ container, language: lang });
       } else if (type === "Line") {
@@ -51,14 +54,23 @@ function init() {
           loadMore: () => loadMore(),
         });
       } else {
+        // K 线图：把 RN WebView 的实际尺寸传给 lightweight-charts，
+        // 避免图表使用默认宽度导致右侧价格轴被裁剪。
         kchart = new KlineChart(
           container,
           () => {
             window?.ReactNativeWebView?.postMessage(
-              JSON.stringify({ type: "update" })
+              JSON.stringify({ type: "update" }),
             );
           },
-          lang
+          lang,
+          {
+            height: chartHeight,
+            chartOptions: {
+              // 使用 RN 明确传入的内容宽度。
+              ...(chartWidth ? { width: chartWidth } : {}),
+            },
+          },
         );
       }
     } catch (err) {
@@ -98,18 +110,18 @@ function init() {
           kchart && kchart.setData(data, priceDecimal, timeType, from);
           requestAnimationFrame(() => {
             window?.ReactNativeWebView?.postMessage(
-              JSON.stringify({ type: "onReady" })
+              JSON.stringify({ type: "onReady" }),
             ); // 模拟“渲染完成”
           });
         } else if (type === "update") {
-          kchart.update(data);
+          kchart.update(data, dataType);
         } else if (type === "updateAddData") {
           kchart.prependData(data);
         } else if (type === "replaceLineData") {
           kchart.replaceLineData(data);
         }
       } else {
-        console.log("不是----1111-");
+        console.log("不是--111--1111-", res);
       }
     };
 

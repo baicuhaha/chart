@@ -1,3 +1,11 @@
+export const normalizeLanguage = (language?: string): "en-US" | "zh-CN" | "zh-TC" => {
+  const value = String(language || "zh-CN").toLowerCase();
+  if (value === "en" || value.startsWith("en-")) return "en-US";
+  if (["zh-tw", "zh-hk", "zh-mo", "zh-hant"].includes(value)) return "zh-TC";
+  if (value === "zh" || value.startsWith("zh-")) return "zh-CN";
+  return "zh-CN";
+};
+
 const i18n = {
   "en-US": {
     time: "Time",
@@ -37,7 +45,7 @@ const i18n = {
     high: "高",
     change: "漲跌",
     amplitude: "振幅",
-    seller: "卖",
+    seller: "賣",
     amount: "數量",
     price: "價格",
     avgPrice: "平均價格:",

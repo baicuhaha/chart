@@ -1,6 +1,9 @@
+// 深度图实现：买卖盘深度曲线。
+// 由 src/rn/index.ts 在 type === "depth" 时创建。
 import * as echarts from "echarts";
 import { setStyle, formatTimestamp } from "./utils/util";
 import Il8n from "./i18n/index";
+import { normalizeLanguage } from "./i18n/index";
 
 interface ChartInitOptions {
   container: HTMLElement;
@@ -18,7 +21,7 @@ export default class SimpleChart {
   private _tick: number = 2;
 
   constructor({ container, language, options = {} }: ChartInitOptions) {
-    this._language = language || "zh-CN";
+    this._language = normalizeLanguage(language);
     const currentLang = this._language;
 
     const option = {

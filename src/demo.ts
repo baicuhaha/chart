@@ -15,6 +15,7 @@ import {
   ChartOptions,
 } from './rn/lightweight-charts';
 import Il8n from './i18n/index';
+import { normalizeLanguage } from './i18n/index';
 import { multipliedBy, dividedBy,formatTimestamp, setStyle} from './utils/util';
 
 interface KLineBar {
@@ -57,7 +58,7 @@ export default class KLineChart {
     } = {}
   ) {
 
-    this._language = language || 'zh-CN'; // 设置语言
+    this._language = normalizeLanguage(language); // 设置语言
     this._loadMore =  loadMore;
 
     this.chart = createChart(container, {

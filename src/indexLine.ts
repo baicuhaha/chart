@@ -1,27 +1,38 @@
-// SimpleEChart.ts
+// 折线图实现：价格折线及其下方成交量图。
+// 由 src/rn/index.ts 在 type === "Line" 时创建。
 import * as echarts from "echarts";
 import { UTCTimestamp } from "lightweight-charts";
 import Il8n from "./i18n/index";
+import { normalizeLanguage } from "./i18n/index";
 import { setStyle, formatTimestamp } from "./utils/util";
 type ChartType = "Line";
 
 export interface LinePoint {
   time: UTCTimestamp;
   value: number;
+  volume?: number;
+  average?: number;
 }
+
+type LineHistoryPoint = Partial<LinePoint> & {
+  time: UTCTimestamp;
+  close?: number;
+};
 
 interface ConstructorParams {
   container: HTMLElement;
   language?: string;
   options?: {
     height?: number;
+    width?: number | string;
     isFullScreen?: boolean;
     from?: string;
   };
 }
 
 /** ================== 尺寸常量 ================== */
-const TOTAL_HEIGHT = 324;
+const TOTAL_HEIGHT = 380;
+const PRICE_HEIGHT = 300;
 const GRID_TOP = 47;
 const GRID_BOTTOM = 22;
 const CHART_HEIGHT = TOTAL_HEIGHT - GRID_TOP - GRID_BOTTOM;
@@ -59,6 +70,8 @@ const formatMap: Record<string, Intl.DateTimeFormatOptions> = {
 
 export default class SimpleChart {
   private chart: echarts.ECharts;
+  private volumeChart: echarts.ECharts;
+  private volumeContainer: HTMLDivElement;
   private container: HTMLElement;
 
   private _data: LinePoint[] = [];
@@ -68,6 +81,7 @@ export default class SimpleChart {
   private _from = "";
   private _isFullScreen = false;
   private _crossTip!: HTMLDivElement;
+  private _summary!: HTMLDivElement;
 
   private _lastDataIndex: number;
   private longPressTimer: any = null;
@@ -75,15 +89,39 @@ export default class SimpleChart {
 
   constructor({ container, language, options = {} }: ConstructorParams) {
     this.container = container;
-    this._language = language || "zh-CN";
+    this._language = normalizeLanguage(language);
     this._from = options.from || "";
     this._isFullScreen = !!options.isFullScreen;
 
-    container.style.width = options.width ? options.width + "px" : "100%";
+    container.style.width =
+      options.width == null
+        ? "100%"
+        : typeof options.width === "number"
+          ? `${options.width}px`
+          : options.width;
     container.style.height = TOTAL_HEIGHT + "px";
 
     this.chart = echarts.init(container);
     this.chart.setOption(this.getBaseOption());
+    this.chart.resize({height: PRICE_HEIGHT});
+
+    container.style.position = "relative";
+    container.style.overflow = "visible";
+    this.volumeContainer = document.createElement("div");
+    this.volumeContainer.style.position = "absolute";
+    this.volumeContainer.style.left = "0";
+    this.volumeContainer.style.top = `${PRICE_HEIGHT}px`;
+    this.volumeContainer.style.width =
+      options.width == null
+        ? `${container.clientWidth}px`
+        : typeof options.width === "number"
+          ? `${options.width}px`
+          : options.width;
+    this.volumeContainer.style.height = `${TOTAL_HEIGHT - PRICE_HEIGHT}px`;
+    container.appendChild(this.volumeContainer);
+    this.volumeChart = echarts.init(this.volumeContainer);
+    this.volumeChart.setOption(this.getVolumeOption());
+    this._summary = document.getElementById("summary-layer") as HTMLDivElement;
 
     this.chart.on("updateAxisPointer", (event) => {
       const xAxisInfo = event.axesInfo?.[0];
@@ -99,7 +137,18 @@ export default class SimpleChart {
         return;
       }
       this._lastDataIndex = dataIndex;
-      this.updateCrossTooltip(dataIndex);
+      this.updateSummary(dataIndex);
+      // 暂时隐藏折线图旧版十字线统计浮层，保留原调用便于后续恢复。
+      // this.updateCrossTooltip(dataIndex);
+    });
+
+    // 点击分时线上的任意位置后，固定显示该点的完整数据。
+    // ECharts 会把点击位置吸附到最近的数据点，因此移动端点按也能使用。
+    this.chart.on("click", (params: any) => {
+      const dataIndex = Number(params?.dataIndex);
+      if (Number.isInteger(dataIndex) && dataIndex >= 0 && dataIndex < this._data.length) {
+        this.showCrossAt(dataIndex);
+      }
     });
 
     this.createCrossTooltip(container);
@@ -190,6 +239,7 @@ export default class SimpleChart {
 
     const lastIndex = yData.length - 1;
     const lastVal = yData[lastIndex];
+    this.updateSummary(lastIndex);
 
     const values = data.map((i) => i.value);
     const trend = this.getTrendStyle(values);
@@ -238,24 +288,49 @@ export default class SimpleChart {
         },
         {
           data: lastVal != null ? [[lastIndex, lastVal]] : [],
-
           itemStyle: {
             color: trend.pointColor,
           },
         },
       ],
     });
-
+    this.setVolumeData(xData, this._data);
     setTimeout(() => this.renderCustomExtrema(yData), 0);
   }
 
-  public update(point: LinePoint) {
-    this._data.push(point);
+  public update(point: LinePoint, dataType?: string) {
+    const lastIndex = this._data.length - 1;
+    const lastPoint = this._data[lastIndex];
 
-    this.chart.appendData({
-      seriesIndex: 0,
-      data: [point.value],
-    });
+    if (
+      dataType === "replace" ||
+      (lastPoint && String(lastPoint.time) === String(point.time))
+    ) {
+      this._data[lastIndex] = point;
+    } else {
+      this._data.push(point);
+    }
+
+    this.replaceLineData(this._data);
+  }
+
+  public prependData(data: LineHistoryPoint[]) {
+    const existingTimes = new Set(
+      this._data.map(item => String(item.time)),
+    );
+    const history = (data || [])
+      .map(item => ({
+        time: item.time,
+        value: Number(item.value ?? item.close),
+        volume: Number(item.volume) || 0,
+      }))
+      .filter(
+        item =>
+          Number.isFinite(item.value) &&
+          !existingTimes.has(String(item.time)),
+      );
+
+    this.replaceLineData([...history, ...this._data]);
   }
 
   public replaceLineData(data: LinePoint[]) {
@@ -278,6 +353,7 @@ export default class SimpleChart {
     }
     const lastIndex = yData.length - 1;
     const lastVal = yData[lastIndex];
+    this.updateSummary(lastIndex);
 
     const values = data.map((i) => i.value);
     const trend = this.getTrendStyle(values);
@@ -330,8 +406,51 @@ export default class SimpleChart {
         },
       ],
     });
-
+    this.setVolumeData(xData, this._data);
     setTimeout(() => this.renderCustomExtrema(yData), 0);
+  }
+
+  private setVolumeData(xData: string[], data: LinePoint[]) {
+    this.volumeChart.setOption({
+      xAxis: {data: xData},
+      series: [{data: this.buildVolumeData(data)}],
+    });
+  }
+
+  private buildVolumeData(data: LinePoint[]) {
+    return data.map((item, index) => ({
+      value: Number(item.volume) || 0,
+      itemStyle: {
+        color:
+          index === 0 || item.value >= data[index - 1].value
+            ? "#16C784"
+            : "#F6465D",
+      },
+    }));
+  }
+
+  private getVolumeOption(): echarts.EChartsOption {
+    return {
+      animation: false,
+      grid: {left: 0, right: 0, top: 2, bottom: 20, containLabel: false},
+      xAxis: {
+        type: "category",
+        boundaryGap: true,
+        axisLine: {show: true, lineStyle: {color: "#E5E9EE"}},
+        axisTick: {show: false},
+        axisLabel: {show: true, color: "#868590", fontSize: 10, margin: 6},
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        axisLine: {show: false},
+        axisTick: {show: false},
+        axisLabel: {show: false},
+        splitLine: {show: false},
+      },
+      tooltip: {show: false},
+      series: [{type: "bar", barMaxWidth: 5, data: []}],
+    };
   }
 
   public getChart() {
@@ -344,8 +463,8 @@ export default class SimpleChart {
     return {
       animation: false,
       grid: {
-        left: 16,
-        right: 16,
+        left: 0,
+        right: 0,
         top: GRID_TOP,
         bottom: GRID_BOTTOM,
         containLabel: false,
@@ -357,18 +476,28 @@ export default class SimpleChart {
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: { show: false },
+        axisPointer: {
+          show: true,
+          type: "line",
+          snap: true,
+          lineStyle: {
+            color: "rgba(36, 36, 36, 1)",
+            width: 0.5,
+            type: "dashed",
+          },
+        },
       },
 
       yAxis: {
         type: "value",
         position: "right",
         scale: false,
-        min: "", // 运行时 set
+        min: "",
         max: "",
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { show: false }, // 👈 关键
-        splitLine: { show: false }, // 👈 顺手关掉
+        axisLabel: { show: false },
+        splitLine: { show: false },
       },
 
       tooltip: {
@@ -597,8 +726,8 @@ export default class SimpleChart {
       originMin,
     ]);
 
-    const chartWidth = this.chart.getWidth();
-    const chartHeight = this.chart.getHeight();
+    const chartWidth = this.container.clientWidth;
+    const chartHeight = this.container.clientHeight;
 
     const FONT_SIZE = 12;
     const LABEL_HEIGHT = 14;
@@ -698,6 +827,12 @@ export default class SimpleChart {
     if (!this._crossTip) return;
 
     const point = this._data[dataIndex];
+    const previous = dataIndex > 0 ? this._data[dataIndex - 1] : undefined;
+    const change = previous ? point.value - previous.value : 0;
+    const changePercent = previous?.value ? (change / previous.value) * 100 : 0;
+    const changeColor = change < 0 ? "#EB4B6D" : "#16C784";
+    const volume = Number(point.volume);
+    const average = point.average ?? point.value;
 
     // 1️⃣ 更新内容
     this._crossTip.innerHTML = `
@@ -711,6 +846,13 @@ export default class SimpleChart {
       </div>
       <div style="font-size:12px;color:rgba(36, 36, 36, 0.6);">
         ${this.formatTime(point.time)}
+      </div>
+      <div style="font-size:12px;color:${changeColor};">
+        ${change >= 0 ? "+" : ""}${change.toFixed(this._tick)}
+        (${change >= 0 ? "+" : ""}${changePercent.toFixed(2)}%)
+      </div>
+      <div style="font-size:12px;color:rgba(36, 36, 36, 0.6);">
+        ${Il8n[this._language].avgPrice} ${average.toFixed(this._tick)}${Number.isFinite(volume) ? ` · ${Il8n[this._language].volume} ${volume}` : ""}
       </div>
     </div>
   `;
@@ -735,15 +877,39 @@ export default class SimpleChart {
     this._crossTip.style.display = "block";
   }
 
+  private updateSummary(dataIndex: number) {
+    const point = this._data[dataIndex];
+    if (!this._summary || !point) return;
+    const previous = dataIndex > 0 ? this._data[dataIndex - 1] : undefined;
+    const change = previous ? point.value - previous.value : 0;
+    const ratio = previous?.value ? (change / previous.value) * 100 : 0;
+    const color = change < 0 ? "summary-fall" : "summary-value";
+    const volume = Number(point.volume);
+    const average = point.average ?? point.value;
+    this._summary.innerHTML = `
+      <div class="summary-row">
+        <span class="summary-time">${this.formatTime(point.time)}</span>
+        <span class="summary-item ${color}">${point.value.toFixed(this._tick)}</span>
+        <span class="summary-item ${color}">${change >= 0 ? "+" : ""}${change.toFixed(this._tick)}</span>
+        <span class="summary-item ${color}">${change >= 0 ? "+" : ""}${ratio.toFixed(2)}%</span>
+      </div>
+      <div class="summary-row">
+        <span class="summary-label">${Il8n[this._language].avgPrice}</span><span class="summary-yellow">${average.toFixed(this._tick)}</span>
+        <span class="summary-label" style="margin-left:10px">${Il8n[this._language].volume}</span><span class="summary-fall">${Number.isFinite(volume) ? volume : "--"}</span>
+      </div>`;
+  }
+
   /** 显示十字线和自定义 Tooltip */
   public showCrossAt(index: number) {
     if (!this._data || !this._data.length) return;
 
     const point = this._data[index];
     if (!point) return;
+    this.updateSummary(index);
 
     // 更新自定义 tooltip
-    this.updateCrossTooltip(index);
+    // 暂时不把统计信息放到十字线浮层上，统一显示在顶部 summary-layer。
+    // this.updateCrossTooltip(index);
 
     // 显示 ECharts axisPointer（可选）
     // this.chart.dispatchAction({
@@ -756,8 +922,14 @@ export default class SimpleChart {
     // 显示 ECharts 十字线
     this.chart.setOption({
       tooltip: {
-        show: true,
+        // 保留十字线交互，不显示 ECharts 浮动统计层。
+        show: false,
       },
+    });
+    this.chart.dispatchAction({
+      type: "updateAxisPointer",
+      xAxisIndex: 0,
+      value: index,
     });
     this.chart.dispatchAction({
       type: "showTip",

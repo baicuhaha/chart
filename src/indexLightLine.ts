@@ -1,3 +1,5 @@
+// 轻量版折线/深度图实现（备用实现）。
+// 当前 RN 入口未直接使用此文件；实际折线图入口是 indexLine.ts。
 import {
   createChart,
   IChartApi,
@@ -16,6 +18,7 @@ import {
 
 import { setStyle, formatTimestamp } from "./utils/util";
 import Il8n from "./i18n/index";
+import { normalizeLanguage } from "./i18n/index";
 import { PartialPriceLine } from "./plugins/partial-price-line";
 import { OverlayPriceScale } from "./plugins/overlay-price-scale";
 
@@ -111,7 +114,7 @@ export default class SimpleChart {
     options = {},
   }: ChartInitOptions) {
     this._type = type;
-    this._language = language || "zh-CN";
+    this._language = normalizeLanguage(language);
     this._loadMore = loadMore;
     console.log("options?.heigh-------->", options.height);
     container.style.height = (options.height || 326) + "px";
@@ -189,7 +192,7 @@ export default class SimpleChart {
 
     console.log(
       "container rect-----》:",
-      container.getBoundingClientRect().height
+      container.getBoundingClientRect().height,
     );
 
     // this.chart.applyOptions({
@@ -224,7 +227,7 @@ export default class SimpleChart {
 
         const bars = this._data.slice(
           Math.max(0, Math.floor(logicalRange.from)),
-          Math.min(this._data.length, Math.ceil(logicalRange.to))
+          Math.min(this._data.length, Math.ceil(logicalRange.to)),
         ) as LinePoint[];
 
         if (!bars.length) return null;
@@ -311,7 +314,7 @@ export default class SimpleChart {
     data: LinePoint[] | DepthPoint[],
     priceDecimal?: number,
     timeType?: string,
-    from?: string
+    from?: string,
   ): void {
     this._data = data || [];
     this._timeRange = timeType;
@@ -719,7 +722,7 @@ export default class SimpleChart {
       x: number,
       y: number,
       value: number,
-      isMax: boolean
+      isMax: boolean,
     ) => {
       el.style.display = "block";
       el.innerText = `$${value.toFixed(this._tick)}`;

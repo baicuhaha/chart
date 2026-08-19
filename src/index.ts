@@ -1,3 +1,5 @@
+// K 线图实现：蜡烛图 + 成交量柱状图。
+// 由 src/rn/index.ts 在 type 不是 "Line" 或 "depth" 时默认创建。
 import {
   createChart,
   IChartApi,
@@ -18,6 +20,7 @@ import {
   IPriceLine,
 } from "lightweight-charts";
 import Il8n from "./i18n/index";
+import { normalizeLanguage } from "./i18n/index";
 import {
   formatAmount,
   updateLatestIndicators,
@@ -30,6 +33,12 @@ import {
 import { PartialPriceLine } from "./plugins/partial-price-line";
 
 import { OverlayPriceScale } from "./plugins/overlay-price-scale";
+
+const KLINE_SUMMARY_HEIGHT = 76;
+
+// lightweight-charts 的 UTCTimestamp 使用秒级时间戳。
+const formatChartTime = (time: UTCTimestamp) =>
+  new Date(Number(time) * 1000);
 
 interface KLineBar {
   time: Time;
@@ -62,6 +71,7 @@ export default class KLineChart {
   private _latestPriceLine: IPriceLine | null = null; //最新价格线
   //最新价格div
   private _priceDiv: HTMLElement = null;
+  private _summary: HTMLElement = null;
 
   private _container: HTMLElement = null;
 
@@ -78,13 +88,24 @@ export default class KLineChart {
     options: {
       height?: number;
       chartOptions?: DeepPartial<ChartOptions>;
-    } = {}
+    } = {},
   ) {
-    this._language = language || "zh-CN"; // 设置语言
+    this._language = normalizeLanguage(language); // 设置语言
     this._loadMore = loadMore;
     this._container = container;
+    container.style.position = "relative";
+    const chartHost = document.createElement("div");
+    chartHost.style.position = "absolute";
+    chartHost.style.left = "0";
+    chartHost.style.right = "0";
+    chartHost.style.top = `${KLINE_SUMMARY_HEIGHT}px`;
+    chartHost.style.bottom = "0";
+    chartHost.style.width = "100%";
+    chartHost.style.overflow = "hidden";
+    container.appendChild(chartHost);
     // console.log("十四师-------")
-    this.chart = createChart(container, {
+    this.chart = createChart(chartHost, {
+      height: Math.max(1, (options.height || 380) - KLINE_SUMMARY_HEIGHT),
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "rgba(13, 12, 34, 0.5)",
@@ -94,7 +115,7 @@ export default class KLineChart {
       localization: {
         // 设置x周时间格式
         timeFormatter: (time: UTCTimestamp) => {
-          const date = new Date(time); // Convert to milliseconds
+          const date = formatChartTime(time);
           const options: Intl.DateTimeFormatOptions = {
             month: "2-digit",
             day: "2-digit",
@@ -135,7 +156,7 @@ export default class KLineChart {
         borderColor: "#fff",
         timeVisible: true,
         tickMarkFormatter: (time: UTCTimestamp) => {
-          const date = new Date(time); // Convert to milliseconds
+          const date = formatChartTime(time);
           const options: Intl.DateTimeFormatOptions = {
             month: "2-digit",
             day: "2-digit",
@@ -175,7 +196,10 @@ export default class KLineChart {
     });
 
     this.candleSeries.attachPrimitive(
-      new OverlayPriceScale({ side: "right", backgroundColor: "rgba(0,0,0,0)" })
+      new OverlayPriceScale({
+        side: "right",
+        backgroundColor: "rgba(0,0,0,0)",
+      }),
     );
 
     this.candleSeries.attachPrimitive(new PartialPriceLine());
@@ -242,6 +266,7 @@ export default class KLineChart {
     this.chart.timeScale().fitContent();
 
     this.createToolTip(container);
+    this._summary = document.getElementById("summary-layer");
 
     this.latestPriceDiv(container);
   }
@@ -252,6 +277,18 @@ export default class KLineChart {
   public setData(data: any[], priceDecimal?: number): void {
     // console.log('setData-----setData--开始-->');
     this._isInit = true; // 设置初始化完成标志
+
+    if (!data?.length) {
+      this._data = [];
+      this._volumeList = [];
+      this._ma5Val = [];
+      this._ma10Val = [];
+      this.candleSeries.setData([]);
+      this.volumeSeries.setData([]);
+      this._loadingMore = false;
+      return;
+    }
+
     const candleData: CandlestickData[] = data.map((item, index) => ({
       time: item.time,
       open: item.open,
@@ -296,13 +333,15 @@ export default class KLineChart {
     let lastObj = updateLatestIndicators(
       candleData,
       this._ma5Val,
-      this._ma10Val
+      this._ma10Val,
     );
     this.setVOL(lastObj);
     // this.setPriceData()
     console.log("volumeList---->", data[data.length - 1].close);
 
     this._lastPrice = data[data.length - 1].close;
+    // 初始化摘要使用第一条数据，不直接展示最新价格；点击数据点后再切换。
+    this.updateSummary(this._data[0] as KLineBar);
 
     requestAnimationFrame(() => {
       this.updatePriceLabelPosition(data[data.length - 1].close);
@@ -331,19 +370,20 @@ export default class KLineChart {
       value: bar.volume,
       color: bar.close > bar.open ? this._upColor : this._downColor,
     };
-    this._volumeList.push(bar.volume);
-    let lastTime = this._data[this._data.length - 1];
-    if (lastTime.time === bar.time) {
-      this._data[this._data.length - 1] = bar;
+    const lastTime = this._data[this._data.length - 1];
+    if (lastTime && lastTime.time === bar.time) {
+      this._data[this._data.length - 1] = candleItem;
+      this._volumeList[this._volumeList.length - 1] = bar.volume;
     } else {
-      this._data.push(bar);
+      this._data.push(candleItem);
+      this._volumeList.push(bar.volume);
     }
     this._ma5Val = calculateMA(this._volumeList, 5);
     this._ma10Val = calculateMA(this._volumeList, 10);
     let lastObj = updateLatestIndicators(
       this._data,
       this._ma5Val,
-      this._ma10Val
+      this._ma10Val,
     );
 
     this.candleSeries.update(candleItem);
@@ -367,21 +407,34 @@ export default class KLineChart {
    * 追加数据
    */
   public prependData(newBars: KLineBar[]): void {
-    const newData: CandlestickData[] = newBars.map((item) => ({
-      time: item.time,
-      open: item.open,
-      high: item.high,
-      low: item.low,
-      close: item.close,
-      turnover: item.turnover,
-      volume: item.volume,
-    }));
+    if (!newBars?.length) {
+      this._loadingMore = false;
+      return;
+    }
 
-    // ⚠️ 时间早的排前面，确保顺序正确
-
-    newData.pop();
+    const existingTimes = new Set(this._data.map((item) => String(item.time)));
+    const newData: CandlestickData[] = newBars
+      .filter((item) => {
+        const key = String(item.time);
+        if (existingTimes.has(key)) return false;
+        existingTimes.add(key);
+        return true;
+      })
+      .map((item) => ({
+        time: item.time,
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        turnover: item.turnover,
+        volume: item.volume,
+      }));
 
     this._data = [...newData, ...this._data];
+
+    this._volumeList = this._data.map((item) => (item as any).volume);
+    this._ma5Val = calculateMA(this._volumeList, 5);
+    this._ma10Val = calculateMA(this._volumeList, 10);
 
     const volumeData: HistogramData[] = this._data.map((item: any) => ({
       time: item.time,
@@ -391,6 +444,9 @@ export default class KLineChart {
 
     this.candleSeries.setData(this._data);
     this.volumeSeries.setData(volumeData);
+    this.setVOL(
+      updateLatestIndicators(this._data, this._ma5Val, this._ma10Val),
+    );
     this._loadingMore = false; // 重置加载状态
   }
 
@@ -454,8 +510,24 @@ export default class KLineChart {
     // update tooltip
     this.chart.subscribeClick((param) => {
       const y = param.point.y;
-      const dataItem = this._data.find((item) => item.time === param.time);
+      const dataItem: KLineBar = this._data.find(
+        (item) => item.time === param.time,
+      ) as KLineBar;
       if (!dataItem) return; // 如果没有数据，则不执行更新操作
+      this.updateSummary(dataItem);
+
+      // 暂时关闭 K 线旧版浮动详情层；摘要信息由顶部 summary-layer 展示。
+      toolTip.style.display = "none";
+      if (param.point) {
+        const price = this.candleSeries.coordinateToPrice(param.point.y);
+        this.chart.setCrosshairPosition(
+          price,
+          dataItem.time,
+          this.candleSeries,
+        );
+      }
+
+      /* 旧版 K 线详情浮层暂时保留，后续需要恢复时删除本行和下面的
       if (
         param.point === undefined ||
         !param.time ||
@@ -488,7 +560,8 @@ export default class KLineChart {
 
         let rangeRatio = Number(middleValue).toFixed(2) + "%";
 
-        this._showToolTip = !this._showToolTip; // 切换tooltip显示状态
+        // 点击数据点后保持详情可见，直到再次点击其它点或开始拖动。
+        this._showToolTip = true;
 
         let rangeRatioColor =
           Number(middleValue) < 0 ? this._downColor : this._upColor;
@@ -554,7 +627,17 @@ export default class KLineChart {
          <span style="color:rgba(13, 12, 34, 0.5)">${
            Il8n[this._language].amplitude
          }:</span>
-        <span>${amplitude}</span>
+       <span>${amplitude}</span>
+      </div>
+
+      <div style="display: flex;justify-content: space-between;margin-bottom: 5px; align-items:center">
+        <span style="color:rgba(13, 12, 34, 0.5)">${Il8n[this._language].volume}</span>
+        <span>${dataItem.volume == null ? "--" : dataItem.volume}</span>
+      </div>
+
+      <div style="display: flex;justify-content: space-between;margin-bottom: 0; align-items:center">
+        <span style="color:rgba(13, 12, 34, 0.5)">${Il8n[this._language].turnover}</span>
+        <span>${dataItem.turnover == null ? "--" : dataItem.turnover}</span>
       </div>
       </div>`;
 
@@ -583,6 +666,7 @@ export default class KLineChart {
           });
         }
       }
+      */
     });
   }
 
@@ -711,7 +795,7 @@ export default class KLineChart {
 
   private latestPriceDiv(container: Element) {
     // 获取最新价格
-    const latestPrice = "";
+    const latestPrice = this._lastPrice || "";
 
     // 创建自定义 div
     const priceDiv = document.createElement("div");
@@ -732,23 +816,55 @@ export default class KLineChart {
 
     priceDiv.style.zIndex = "10000";
     priceDiv.style.opacity = "0";
+    priceDiv.style.whiteSpace = "nowrap";
     this._priceDiv = priceDiv;
     container.appendChild(priceDiv);
   }
   // 函数：根据价格换算 y 像素位置
   private updatePriceLabelPosition(lastPrice: string | number) {
-    this._priceDiv.style.opacity = "1";
+    if (
+      !this._priceDiv ||
+      lastPrice === "" ||
+      lastPrice === null ||
+      lastPrice === undefined
+    ) {
+      return;
+    }
     let y = this.candleSeries.priceToCoordinate(lastPrice);
 
-    let maxY = 310;
-    let minY = 18;
-    if (y !== null) {
-      y = Math.min(Math.max(y, minY), maxY);
-      this._priceDiv.style.top = `${y}px`;
-    } else {
-      this._priceDiv.style.top = `-9999px`; // 隐藏
+    // 价格坐标进入顶部统计区域或超出 K 线画布时隐藏，回到图表区域后恢复显示。
+    const chartHeight = this._container.clientHeight - KLINE_SUMMARY_HEIGHT;
+    if (y === null || y < 0 || y > chartHeight) {
+      this._priceDiv.style.opacity = "0";
+      this._priceDiv.style.top = `-9999px`;
+      return;
     }
 
-    this._priceDiv.innerHTML = `${lastPrice}`;
+    this._priceDiv.style.opacity = "1";
+    // 价格标签挂在外层容器，需要补上顶部摘要区域的偏移。
+    y += KLINE_SUMMARY_HEIGHT;
+    this._priceDiv.style.top = `${y}px`;
+
+    this._priceDiv.innerText = `${lastPrice}`;
+  }
+
+  private updateSummary(dataItem: KLineBar) {
+    if (!this._summary || !dataItem) return;
+    const change = Number(dataItem.close) - Number(dataItem.open);
+    const ratio = dataItem.open ? (change / Number(dataItem.open)) * 100 : 0;
+    const color = change < 0 ? "summary-fall" : "summary-value";
+    const price = (value: number) => Number(value).toFixed(this._tick);
+    this._summary.innerHTML = `
+      <div class="summary-row">
+        <span class="summary-item"><span class="summary-label">${Il8n[this._language].open}</span><span class="${color}">${price(dataItem.open)}</span></span>
+        <span class="summary-item"><span class="summary-label">${Il8n[this._language].high}</span><span class="summary-value">${price(dataItem.high)}</span></span>
+        <span class="summary-item"><span class="summary-label">${Il8n[this._language].volume}</span><span class="summary-value">${dataItem.volume ?? "--"}</span></span>
+      </div>
+      <div class="summary-row">
+        <span class="summary-item"><span class="summary-label">${Il8n[this._language].close}</span><span class="${color}">${price(dataItem.close)}</span></span>
+        <span class="summary-item"><span class="summary-label">${Il8n[this._language].low}</span><span class="summary-fall">${price(dataItem.low)}</span></span>
+        <span class="summary-item"><span class="summary-label">${Il8n[this._language].turnover}</span><span class="summary-value">${dataItem.turnover ?? "--"}</span></span>
+      </div>
+      <div class="summary-row"><span class="summary-label">${Il8n[this._language].change}</span><span class="${color}">${ratio >= 0 ? "+" : ""}${ratio.toFixed(2)}%</span></div>`;
   }
 }
